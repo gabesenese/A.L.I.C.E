@@ -686,7 +686,15 @@ class LocalLLMEngine:
 
     def _build_system_prompt(self, base_prompt: Optional[str] = None, intent: str = "", user_query: str = "") -> str:
         """Append companion context + personality drift to every system prompt."""
-        prompt = str(base_prompt if base_prompt is not None else self.system_prompt)
+        if base_prompt is not None:
+            prompt = str(base_prompt)
+        else:
+            # Built once at start-up around a fixed name, the prompt ignored "call me
+            # Gabe". The name he gave is read each turn.
+            from ai.identity.preferred_name import preferred_name
+
+            name = preferred_name()
+            prompt = persona.for_conversation(user_name=name) if name else str(self.system_prompt)
         prompt += _build_companion_context(intent=intent, user_query=user_query)
         try:
             from brain.personality import apply_personality_to_system_prompt

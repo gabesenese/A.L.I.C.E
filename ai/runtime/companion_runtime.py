@@ -591,6 +591,7 @@ class CompanionRuntimeLoop:
         # Layer 1 — capture explicit style corrections
         self._capture_explicit_preference(user_input, companion_state.last_response_excerpt)
         self._capture_home_location(user_input)
+        self._capture_preferred_name(user_input)
 
         # Layer 2 — update behavioral profile
         self._update_behavioral_profile(user_input, response_text, str(route_decision.intent or ""))
@@ -820,6 +821,18 @@ class CompanionRuntimeLoop:
             place = stated_home(user_input)
             if place:
                 remember_home(place)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _capture_preferred_name(user_input: str) -> None:
+        """What he wants to be called, from "call me Gabe", used from the next turn on."""
+        try:
+            from ai.identity.preferred_name import remember_name, stated_name
+
+            name = stated_name(user_input)
+            if name:
+                remember_name(name)
         except Exception:
             pass
 
