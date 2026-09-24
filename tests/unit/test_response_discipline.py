@@ -110,3 +110,45 @@ def test_empty_input_stays_empty():
 def test_content_without_filler_is_preserved_exactly():
     text = "The routing regression came from ec84085. The session objective was ignored."
     assert apply_response_discipline(text) == text
+
+
+LISTED = (
+    "The cache is the slow part. It rebuilds on every turn. That was fine at ten notes. "
+    "Three things make it worse in practice:\n"
+    "1. Every turn re-embeds the whole store.\n"
+    "2. The index is rebuilt from scratch.\n"
+    "3. Nothing is ever evicted."
+)
+
+
+def test_a_capped_reply_never_stops_at_the_first_numeral_of_a_list():
+    """Counting "1." as a sentence cut this to "...worse in practice:\\n1." --
+    three things promised, and the numeral delivered."""
+    capped = apply_response_discipline(LISTED, max_sentences=4)
+    assert not capped.endswith("1.")
+    assert capped == LISTED
+
+
+def test_paragraph_breaks_survive():
+    text = "SQLite is fine for one user.\n\nIf a second writer appears, move to Postgres."
+    assert apply_response_discipline(text) == text
+
+
+def test_removing_a_sign_off_keeps_the_line_breaks_above_it():
+    text = "Two options.\n\nSQLite now, Postgres later. Hope this helps!"
+    assert strip_filler_closing(text) == "Two options.\n\nSQLite now, Postgres later."
+
+
+def test_a_cut_keeps_the_line_breaks_before_it():
+    text = "First point.\n\nSecond point. Third point. Fourth point."
+    assert limit_sentences(text, max_sentences=2) == "First point.\n\nSecond point."
+
+
+def test_an_abbreviation_is_not_a_sentence_ending():
+    text = "Use a broker, e.g. Redis or NATS. Both handle backpressure."
+    assert limit_sentences(text, max_sentences=2) == text
+
+
+def test_a_code_block_is_never_cut():
+    text = "Run this first. Then check the log. It should be quiet.\n```\npytest -q\n```\nThat is all of it."
+    assert limit_sentences(text, max_sentences=2) == text

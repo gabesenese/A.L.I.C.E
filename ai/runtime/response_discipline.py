@@ -9,7 +9,7 @@ removes that scaffolding and leaves the substance.
 from __future__ import annotations
 
 import re
-from typing import List
+from typing import List, Tuple
 
 DEFAULT_MAX_SENTENCES = 6
 
@@ -96,8 +96,43 @@ def strip_speaker_label(text: str) -> str:
     return cleaned or original
 
 
+# Where a sentence can end: terminal punctuation, any closing quote or bracket, then
+# whitespace. A full stop after a bare number or a common abbreviation is not an
+# ending. Counting the "1." of a numbered list as a sentence is how a capped reply
+# promised "three things" and then stopped at the numeral.
+_SENTENCE_END_RE = re.compile(r"[.!?]+[\"')\]]*(?=\s)")
+_NOT_AN_ENDING = {"e.g", "i.e", "vs", "cf", "mr", "mrs", "ms", "dr"}
+
+# A list item or a code fence makes a reply structured rather than prose.
+_LIST_LINE_RE = re.compile(r"^[ \t]*(?:[-*+•]|\d{1,3}[.)])[ \t]+\S", re.MULTILINE)
+
+
+def _sentence_spans(text: str) -> List[Tuple[int, int]]:
+    """Offsets of each sentence, so callers cut the original text instead of
+    rejoining pieces. Rejoining with spaces is what flattened every line break."""
+    spans: List[Tuple[int, int]] = []
+    start = 0
+    for match in _SENTENCE_END_RE.finditer(text):
+        if match.group(0) == ".":
+            words = text[start : match.start()].split()
+            last_word = words[-1].lstrip("(\"'[").lower() if words else ""
+            if last_word.isdigit() or last_word in _NOT_AN_ENDING:
+                continue
+        if text[start : match.end()].strip():
+            spans.append((start, match.end()))
+        start = match.end()
+    if text[start:].strip():
+        spans.append((start, len(text)))
+    return spans
+
+
+def _is_structured(text: str) -> bool:
+    return "```" in text or bool(_LIST_LINE_RE.search(text))
+
+
 def split_sentences(text: str) -> List[str]:
-    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", str(text or "").strip()) if s.strip()]
+    content = str(text or "").strip()
+    return [content[start:end].strip() for start, end in _sentence_spans(content)]
 
 
 def strip_filler_opening(text: str) -> str:
@@ -112,17 +147,27 @@ def strip_filler_opening(text: str) -> str:
 
 
 def strip_filler_closing(text: str) -> str:
-    sentences = split_sentences(text)
-    while len(sentences) > 1 and _CLOSING_RE.match(sentences[-1]):
-        sentences.pop()
-    return " ".join(sentences) if sentences else str(text or "").strip()
+    content = str(text or "").strip()
+    spans = _sentence_spans(content)
+    while len(spans) > 1 and _CLOSING_RE.match(content[spans[-1][0] : spans[-1][1]].strip()):
+        spans.pop()
+    return content[: spans[-1][1]].rstrip() if spans else content
 
 
 def limit_sentences(text: str, max_sentences: int = DEFAULT_MAX_SENTENCES) -> str:
-    sentences = split_sentences(text)
-    if len(sentences) <= max_sentences:
-        return " ".join(sentences) if sentences else str(text or "").strip()
-    return " ".join(sentences[:max_sentences])
+    """Cap prose at a sentence boundary, keeping the reply's own line breaks.
+
+    The cap is for rambling prose. A reply with a list or a code block is
+    structured, and there is no place to cut it that keeps what it promised, so it
+    is left whole.
+    """
+    content = str(text or "").strip()
+    if _is_structured(content):
+        return content
+    spans = _sentence_spans(content)
+    if len(spans) <= max_sentences:
+        return content
+    return content[: spans[max(1, max_sentences) - 1][1]].rstrip()
 
 
 _EXECUTION_CLAIMS = re.compile(
