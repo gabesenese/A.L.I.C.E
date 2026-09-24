@@ -8,8 +8,8 @@ so "Remember that I prefer coffee" answered "Failed to store preference:
 'MemorySystem' object has no attribute 'add_episodic_memory'" and "what do you
 remember about X" answered "Failed to recall memory: …".
 
-The router reaches this plugin on memory:store / memory:recall / memory:search /
-memory:delete (ai/infrastructure/router.py:147-150), and nlp_processor assigns
+The plugin manager reaches this plugin on memory:store / memory:recall /
+memory:search / memory:delete, and nlp_processor assigns
 those intents at 0.95 confidence, so this is a user-facing path and not a
 disused corner.
 
