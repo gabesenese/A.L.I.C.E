@@ -6393,6 +6393,15 @@ class ALICE:
                     self.conversation_topics = list(state["conversation_topics"])[-5:]
                 if "referenced_items" in state:
                     self.referenced_items = state["referenced_items"]
+                llm = getattr(self, "llm", None)
+                if llm is not None and isinstance(state.get("llm_history"), list):
+                    llm.conversation_history = [
+                        {"role": str(turn["role"]), "content": str(turn["content"])}
+                        for turn in state["llm_history"]
+                        if isinstance(turn, dict)
+                        and turn.get("role") in {"user", "assistant"}
+                        and isinstance(turn.get("content"), str)
+                    ]
                 if state.get("conversation_state_tracker") and getattr(self, "conversation_state_tracker", None):
                     self.conversation_state_tracker.load_state(state["conversation_state_tracker"])
 
@@ -6430,6 +6439,13 @@ class ALICE:
                 ),
                 "timestamp": datetime.now().isoformat(),
             }
+            # The transcript the model replays to itself. It lived only in
+            # memory, so every restart began at turn zero and she could not say
+            # what you were doing an hour ago. Privacy mode keeps it off disk.
+            llm = getattr(self, "llm", None)
+            if llm is not None and not getattr(self, "privacy_mode", False):
+                keep = int(getattr(getattr(llm, "config", None), "max_history", 30) or 30)
+                state["llm_history"] = list(getattr(llm, "conversation_history", []) or [])[-keep:]
             save_json_atomic(self.CONVERSATION_STATE_PATH, state)
 
             # Persist adaptive routing weights for cumulative learning
