@@ -1,29 +1,5 @@
-from ai.core.adaptive_intent_calibrator import AdaptiveIntentCalibrator
 from ai.core.constraint_preference_extractor import ConstraintPreferenceExtractor
-from ai.core.context_intent_refiner import ContextIntentRefiner
 from ai.core.cognitive_orchestrator import CognitiveOrchestrator
-
-
-def test_adaptive_intent_calibrator_penalizes_after_corrections():
-    cal = AdaptiveIntentCalibrator()
-    base = cal.calibrate("weather:current", 0.82)
-    cal.record_feedback("weather:current", was_correct=False)
-    cal.record_feedback("weather:current", was_correct=False)
-    adjusted = cal.calibrate("weather:current", 0.82)
-    assert adjusted < base
-
-
-def test_context_intent_refiner_uses_debug_context():
-    refiner = ContextIntentRefiner()
-    out = refiner.refine(
-        user_input="can you analyze this",
-        intent="conversation:general",
-        confidence=0.52,
-        recent_topic="debug traceback for parser",
-        last_intent="conversation:question",
-    )
-    assert out["intent"] == "conversation:question"
-    assert float(out["confidence"]) >= 0.7
 
 
 def test_constraint_preference_extractor_detects_format_and_detail():

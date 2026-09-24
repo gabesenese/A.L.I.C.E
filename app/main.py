@@ -96,18 +96,8 @@ from ai.core.turn_routing_policy import get_turn_routing_policy
 from ai.core.live_state_service import get_live_state_service
 from ai.core.execution_verifier import get_execution_verifier
 from ai.core.clarification_resolver import get_clarification_resolver
-from ai.core.activity_monitor import ActivityMonitor
-from ai.core.temporal_reasoner import TemporalReasoner
-from ai.core.adaptive_intent_calibrator import AdaptiveIntentCalibrator
-from ai.core.context_intent_refiner import ContextIntentRefiner
-from ai.core.constraint_preference_extractor import ConstraintPreferenceExtractor
-from ai.core.multi_step_reasoning_engine import MultiStepReasoningEngine
 from ai.core.episodic_memory_engine import EpisodicMemoryEngine
-from ai.core.proactive_interruption_manager import ProactiveInterruptionManager
 from ai.core.adaptive_response_style import AdaptiveResponseStyle
-from ai.core.causal_inference_engine import CausalInferenceEngine
-from ai.core.hypothetical_scenario_generator import HypotheticalScenarioGenerator
-from ai.core.decision_constraint_solver import DecisionConstraintSolver
 from ai.core.semantic_memory_index import SemanticMemoryIndex
 from ai.core.memory_consolidator import MemoryConsolidator
 from ai.core.cross_session_pattern_detector import CrossSessionPatternDetector
@@ -371,18 +361,8 @@ class ALICE:
         self.plan_executor = None
         self.reasoning_planner = None
         self.persistent_task_queue = None
-        self.activity_monitor = None
-        self.temporal_reasoner = None
-        self.adaptive_intent_calibrator = None
-        self.context_intent_refiner = None
-        self.constraint_preference_extractor = None
-        self.multi_step_reasoning_engine = None
         self.episodic_memory_engine = None
-        self.proactive_interruption_manager = None
         self.adaptive_response_style = None
-        self.causal_inference_engine = None
-        self.hypothetical_scenario_generator = None
-        self.decision_constraint_solver = None
         self.semantic_memory_index = None
         self.memory_consolidator = None
         self.cross_session_pattern_detector = None
@@ -1132,18 +1112,8 @@ class ALICE:
                 ],
             },
         }
-        self.activity_monitor = ActivityMonitor()
-        self.temporal_reasoner = TemporalReasoner()
-        self.adaptive_intent_calibrator = AdaptiveIntentCalibrator()
-        self.context_intent_refiner = ContextIntentRefiner()
-        self.constraint_preference_extractor = ConstraintPreferenceExtractor()
-        self.multi_step_reasoning_engine = MultiStepReasoningEngine()
         self.episodic_memory_engine = EpisodicMemoryEngine()
-        self.proactive_interruption_manager = ProactiveInterruptionManager()
         self.adaptive_response_style = AdaptiveResponseStyle()
-        self.causal_inference_engine = CausalInferenceEngine()
-        self.hypothetical_scenario_generator = HypotheticalScenarioGenerator()
-        self.decision_constraint_solver = DecisionConstraintSolver()
         self.semantic_memory_index = SemanticMemoryIndex()
         self.memory_consolidator = MemoryConsolidator()
         self.cross_session_pattern_detector = CrossSessionPatternDetector()
