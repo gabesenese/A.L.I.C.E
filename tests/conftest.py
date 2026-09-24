@@ -146,6 +146,20 @@ def isolate_project_memory(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_user_identity(tmp_path, monkeypatch):
+    """Keep turns driven by tests out of his identity file.
+
+    data/identity/<user>.json holds the style preferences and recent moods that
+    go into every prompt. It is ignored by git, so a test writing there changes
+    nothing git would show, but on his machine the suite would add its own
+    feedback and moods to the real file.
+    """
+    import ai.identity.user_identity as user_identity
+
+    monkeypatch.setattr(user_identity, "_IDENTITY_DIR", tmp_path / "identity")
+
+
+@pytest.fixture(autouse=True)
 def reset_routing_confidence_singletons(tmp_path, monkeypatch):
     """Isolate the learned signals that shift routing confidence between tests.
 

@@ -735,42 +735,63 @@ class CompanionRuntimeLoop:
             pass
 
     # Layer 1 — explicit preference capture
+    #
+    # Only feedback on how she talks is kept as a standing preference. A request
+    # for this one answer is not: "give me a brief overview" was learned as
+    # "always be brief", "that's an elaborate plan" as "always go into detail",
+    # and "write it in a professional tone" made every reply after it formal.
     _PREFERENCE_SIGNALS: List[tuple] = [
         (
             re.compile(
-                r"\b(be more concise|too long|keep it short|shorter|less verbose|brief(er)?|stop repeating)\b",
+                r"\b(?:(?:that'?s|that\s+was|you'?re|you\s+are|your\s+(?:answers|replies)\s+are)\s+(?:way\s+|much\s+|a\s+bit\s+)?"
+                r"too\s+(?:long|wordy|verbose)|be\s+more\s+concise|less\s+verbose|you\s+talk\s+too\s+much|"
+                r"keep\s+(?:it|them|your\s+(?:answers|replies))\s+(?:short|brief)|stop\s+repeating\s+yourself|"
+                r"(?:shorter|briefer)\s+(?:answers|replies|responses))\b",
                 re.I,
             ),
             "response_length",
             "brief",
         ),
         (
-            re.compile(r"\b(more detail|go deeper|elaborate|explain more|in depth)\b", re.I),
+            re.compile(
+                r"\b(?:(?:that'?s|that\s+was|you'?re|you\s+are|your\s+(?:answers|replies)\s+are)\s+(?:way\s+|much\s+|a\s+bit\s+)?"
+                r"too\s+(?:short|brief|terse)|(?:longer|more\s+detailed)\s+(?:answers|replies|responses))\b",
+                re.I,
+            ),
             "response_length",
             "detailed",
         ),
         (
-            re.compile(r"\b(too formal|be casual|more casual|relax a bit)\b", re.I),
+            re.compile(
+                r"\b(?:(?:that'?s|you'?re|you\s+are)\s+(?:way\s+|a\s+bit\s+)?too\s+formal|be\s+(?:more\s+)?casual|"
+                r"relax\s+a\s+bit|loosen\s+up)\b",
+                re.I,
+            ),
             "tone",
             "casual",
         ),
         (
-            re.compile(r"\b(more formal|be professional|professional tone)\b", re.I),
+            re.compile(
+                r"\b(?:(?:that'?s|you'?re|you\s+are)\s+(?:way\s+|a\s+bit\s+)?too\s+casual|be\s+more\s+formal\s+with\s+me)\b",
+                re.I,
+            ),
             "tone",
             "formal",
         ),
         (
-            re.compile(r"\b(no (bullet|list|bullets)|stop (listing|using bullets))\b", re.I),
+            re.compile(
+                r"\b(?:no\s+more\s+bullets|stop\s+(?:using|with\s+the)\s+bullets|i\s+hate\s+bullet\s+points)\b", re.I
+            ),
             "format",
             "prose",
         ),
         (
-            re.compile(r"\b(use (bullets|lists)|bullet points? please)\b", re.I),
+            re.compile(r"\b(?:i\s+(?:prefer|like)\s+bullet(?:\s+point)?s|always\s+use\s+bullets)\b", re.I),
             "format",
             "bullets",
         ),
         (
-            re.compile(r"\b(no (emojis?|icons)|stop using emojis?)\b", re.I),
+            re.compile(r"\b(?:no\s+(?:more\s+)?emojis?|stop\s+using\s+emojis?)\b", re.I),
             "emojis",
             "never",
         ),
@@ -781,14 +802,14 @@ class CompanionRuntimeLoop:
     )
 
     @staticmethod
-    def _capture_explicit_preference(user_input: str, last_response: str) -> None:
+    def _preferences_in(user_input: str) -> Dict[str, str]:
+        """The standing style preferences a message states, if any."""
         text = str(user_input or "").strip()
-        if not text:
-            return
-        prefs: Dict[str, str] = {}
-        for pattern, key, value in CompanionRuntimeLoop._PREFERENCE_SIGNALS:
-            if pattern.search(text):
-                prefs[key] = value
+        return {key: value for pattern, key, value in CompanionRuntimeLoop._PREFERENCE_SIGNALS if pattern.search(text)}
+
+    @staticmethod
+    def _capture_explicit_preference(user_input: str, last_response: str) -> None:
+        prefs = CompanionRuntimeLoop._preferences_in(user_input)
         if not prefs:
             return
         try:
