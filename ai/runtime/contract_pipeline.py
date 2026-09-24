@@ -517,39 +517,6 @@ class ContractPipeline:
 
         stages.append(self._stage("input", "ok", {"length": len(user_input)}))
 
-        # Meta-query: weak spots / routing report
-        _low = user_input.lower().strip()
-        if any(
-            phrase in _low
-            for phrase in (
-                "weak spot",
-                "what are your weak spots",
-                "routing report",
-                "show me your failures",
-                "alice report",
-                "failure report",
-                "where are you failing",
-                "what do you struggle",
-            )
-        ):
-            try:
-                from ai.learning.failure_eval_converter import (
-                    get_failure_eval_converter,
-                )
-
-                _report = get_failure_eval_converter().weak_spot_report()
-            except Exception as e:
-                _report = f"Could not generate report: {e}"
-            return PipelineResult(
-                handled=True,
-                response_text=f"Here's my current routing performance:\n\n```\n{_report}\n```",
-                metadata={
-                    "source": "weak_spot_report",
-                    "trace_id": trace_id,
-                    "stages": stages,
-                },
-            )
-
         user_state_snapshot = self.user_state_model.get_or_create(user_id)
         companion_state = self.companion_runtime.start_turn(
             user_id=user_id,

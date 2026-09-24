@@ -6198,6 +6198,7 @@ class ALICE:
             print("Debug Commands:")
             print("   /correct   - Correct my last response")
             print("   /autolearn - Show automated learning audit report")
+            print("   /report    - Show routing weak spots from the eval log")
 
             # Proactive morning briefing
             if getattr(self, "proactive_assistant", None):
@@ -6480,6 +6481,7 @@ class ALICE:
             print("   /realtime-status   - Show continuous learning metrics and velocity")
             print("   /formulation       - Show response formulation learning progress")
             print("   /autolearn [days]  - Show automated learning audit report (default: 7 days)")
+            print("   /report            - Show routing weak spots from the eval log")
 
         elif cmd in {"/exit", "/quit"}:
             farewell = self._get_farewell()
@@ -6841,6 +6843,14 @@ class ALICE:
 
         elif cmd == "/autolearn" or cmd.startswith("/autolearn "):
             self._handle_autolearn_command(command)
+
+        elif cmd == "/report":
+            try:
+                from ai.learning.failure_eval_converter import get_failure_eval_converter
+
+                print("\n" + get_failure_eval_converter().weak_spot_report())
+            except Exception:
+                print("\nI couldn't build the routing report just now.")
 
         elif cmd.startswith("/autonomous"):
             self._handle_autonomous_command(command)
