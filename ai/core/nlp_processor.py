@@ -678,6 +678,12 @@ _INSTRUCTION_REQUEST_RE = re.compile(
 )
 
 
+_ADD_TO_LIST_RE = re.compile(
+    r"^(?:please\s+)?(?:(?:can|could)\s+you\s+)?(?:add|put|stick|throw|include)\s+.+?\s+(?:to|on|onto|in|into)\s+"
+    r"(?:my|the|our)\s+[\w' -]{0,30}?\blist\b",
+    re.IGNORECASE,
+)
+
 # Plugins that act, as opposed to ones that look something up.
 _ACTION_PLUGINS = frozenset(
     {"notes", "reminder", "memory", "file_operations", "calendar", "email", "system", "music", "document"}
@@ -4314,6 +4320,14 @@ class NLPProcessor:
         ):
             intent = "weather:forecast"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+        # "add milk to my shopping list" is an item for a list, not a request to
+        # see the lists; the word "list" sent every one of these to notes:list.
+        if _ADD_TO_LIST_RE.search(_raw):
+            intent = "notes:append"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.93)
+        elif intent == "notes:append" and re.match(r"(?:show|list|what|which|read|open|see|display)\b", _raw):
+            # Carried over from an add on the turn before, but this one asks to see.
+            intent = "notes:list"
         # A request for instructions is answered, never acted on. "how do I set a
         # reminder on my iphone?" went to reminder:set, "show me how recursion
         # works" to notes:read, and "find the bug: ..." to notes:search, each at a

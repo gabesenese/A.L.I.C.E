@@ -282,6 +282,13 @@ class NotesSettings:
     user_templates_filename: str = "templates.json"
 
 
+_LIST_ITEM_RE = re.compile(
+    r"^(?:please\s+)?(?:(?:can|could)\s+you\s+)?(?:add|put|stick|throw|include)\s+(?P<items>.+?)\s+"
+    r"(?:to|on|onto|in|into)\s+(?:my|the|our)\s+(?P<name>[\w' -]{0,30}?\blist)\b",
+    re.IGNORECASE,
+)
+
+
 class NotesManager:
     """Handles note storage and retrieval"""
 
@@ -2812,8 +2819,38 @@ class NotesPlugin(PluginInterface):
     # ------------------------------------------------------------------
     # Feature #5: Append-mode note update
     # ------------------------------------------------------------------
+    def _add_to_list(self, items_text: str, list_name: str) -> Dict[str, Any]:
+        """Add items to a named list, starting the list if it does not exist yet."""
+        items = [i.strip(" .") for i in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", items_text) if i.strip(" .")]
+        name = " ".join(list_name.split()).lower()
+        existing = [
+            n for n in self.manager.find_by_title(name) if n.title.lower() == name
+        ] or self.manager.find_by_title(name)
+        joined = ", ".join(items[:-1]) + (" and " if len(items) > 1 else "") + items[-1]
+        if existing:
+            note = existing[0]
+            for item in items:
+                self.manager.append_note_content(note.id, f"- {item}")
+            response = f"Added {joined} to your {name}."
+        else:
+            note = self.manager.create_note(title=name.capitalize(), content="\n".join(f"- {i}" for i in items))
+            response = f"Started a {name} with {joined}."
+        self.last_note_id = note.id
+        return {
+            "success": True,
+            "action": "append_note",
+            "response": response,
+            "data": {"note_title": note.title, "items": items, "created": not existing},
+        }
+
     def _append_note(self, command: str) -> Dict[str, Any]:
         """Append text to an existing note without replacing its content."""
+        # "add milk to my shopping list", "put batteries on the grocery list": items
+        # for a named list. This fell through every pattern below and was answered
+        # "What would you like to add to the note?"
+        list_item = _LIST_ITEM_RE.search(command)
+        if list_item:
+            return self._add_to_list(list_item.group("items"), list_item.group("name"))
         # Extract text to append
         append_patterns = [
             r"(?:append|add to|attach to)\s+(?:note\s+)?(.+?)\s*:\s*(.+)",
@@ -3882,6 +3919,11 @@ class NotesPlugin(PluginInterface):
 
     def _add_to_note(self, command: str) -> Dict[str, Any]:
         """Add content to an existing note (context-aware)"""
+        # A named list gets its items, and is started if it does not exist yet.
+        # This path needed the note to exist already and failed with no message.
+        list_item = _LIST_ITEM_RE.search(command)
+        if list_item:
+            return self._add_to_list(list_item.group("items"), list_item.group("name"))
         # Extract what to add: "add X to [my/the] [words...] list/note"
         # (?:(?:\w+)\s+)* allows zero-or-more words before the anchor (list|note)
         match = re.search(
