@@ -116,3 +116,10 @@ def test_every_way_of_adding_reaches_the_list(notes):
         "Added batteries to your shopping list."
     )
     assert _say(notes, "what's on my shopping list?") == "On your shopping list: milk, coffee and batteries."
+
+
+def test_the_notes_are_listed_in_plain_words(notes):
+    """It read "You have 1 note(s).\n1. Shopping list — - milk"."""
+    _say(notes, "add milk and eggs to my shopping list", "notes:append")
+
+    assert _say(notes, "show me my notes") == "You have one note:\n1. Shopping list — milk, eggs"

@@ -4337,8 +4337,12 @@ class NotesPlugin(PluginInterface):
         for note in notes[:list_limit]:
             preview = ""
             if note.content and note.content != note.title:
-                preview = note.content[:140].replace("\n", " ")
-                if len(note.content) > 140:
+                if _BULLET_RE.match(note.content):
+                    # A list reads as its items: "Shopping list — milk, eggs", not "— - milk".
+                    preview = ", ".join(_list_items(note.content))[:140]
+                else:
+                    preview = note.content[:140].replace("\n", " ")
+                if len(preview) >= 140:
                     preview += "..."
             notes_payload.append(
                 {
@@ -4383,12 +4387,14 @@ class NotesPlugin(PluginInterface):
                 line += f" — {n['preview']}"
             note_lines.append(line)
         type_label = f" {note_type}" if note_type else ""
-        summary = f"You have {len(notes)}{type_label} note(s)."
+        summary = f"You have one{type_label} note:" if len(notes) == 1 else f"You have {len(notes)}{type_label} notes:"
         if len(notes) > list_limit:
             summary += f" Showing the first {list_limit}."
         response_text = summary + "\n" + "\n".join(note_lines)
         if overdue_count:
-            response_text += f"\n\n{overdue_count} note(s) are overdue."
+            response_text += (
+                "\n\nOne of them is overdue." if overdue_count == 1 else f"\n\n{overdue_count} are overdue."
+            )
 
         return {
             "success": True,
