@@ -413,6 +413,7 @@ def assess_continuity_claims(
     operator_state: Dict[str, Any] | None,
     min_structured_confidence: float = 0.7,
     evidence_text: str = "",
+    prior_session_text: str = "",
 ) -> ContinuityGuardResult:
     content = str(text or "").strip()
     if not content:
@@ -446,7 +447,8 @@ def assess_continuity_claims(
     # Names Alice is allowed to use: anything the user said in this conversation,
     # anything a tool returned this turn, plus stored memory and operator state.
     said_tokens = _tokens(str(evidence_text or ""))
-    grounded_tokens = set(said_tokens)
+    earlier_tokens = _tokens(str(prior_session_text or ""))
+    grounded_tokens = set(said_tokens) | earlier_tokens
     grounded_tokens |= state_tokens
     for item in all_items:
         grounded_tokens |= _tokens(str(item.get("content") or ""))
@@ -492,6 +494,12 @@ def assess_continuity_claims(
                 _content_tokens(claim_tokens), _content_tokens(said_tokens)
             ):
                 reasons.append("said_in_this_conversation")
+
+            # A claim about an earlier session is grounded by that session's
+            # transcript, restored at startup. Without this, "last time we were
+            # fixing the parser" was deleted after every restart.
+            if _has_topic_overlap(_content_tokens(claim_tokens), _content_tokens(earlier_tokens)):
+                reasons.append("said_in_an_earlier_session")
 
             if recent_items:
                 for item in recent_items:

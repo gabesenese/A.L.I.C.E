@@ -3492,6 +3492,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 memory_items=list(req.memory.items or []),
                 operator_state=operator_state,
                 evidence_text=_turn_evidence_text(req, alice),
+                prior_session_text=str(getattr(alice, "_previous_session_user_text", "") or ""),
             )
             llm_text = _strip_shaming(str(continuity.text or "").strip())
             low_input = str(req.user_input or "").lower()
@@ -3659,6 +3660,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 memory_items=list(req.memory.items or []),
                 operator_state=operator_state,
                 evidence_text=_turn_evidence_text(req, alice),
+                prior_session_text=str(getattr(alice, "_previous_session_user_text", "") or ""),
             )
             if continuity.unsupported_continuity_claim:
                 return VerifierResult(

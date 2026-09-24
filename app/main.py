@@ -5525,6 +5525,12 @@ class ALICE:
                         and turn.get("role") in {"user", "assistant"}
                         and isinstance(turn.get("content"), str)
                     ]
+                    # What he said last session, kept apart from this session's
+                    # turns: it is the record that grounds "last time we were
+                    # fixing the parser" (see continuity_claim_guard).
+                    self._previous_session_user_text = " ".join(
+                        turn["content"] for turn in llm.conversation_history if turn["role"] == "user"
+                    )
                 if state.get("conversation_state_tracker") and getattr(self, "conversation_state_tracker", None):
                     self.conversation_state_tracker.load_state(state["conversation_state_tracker"])
 

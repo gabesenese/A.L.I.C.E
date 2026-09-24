@@ -29,6 +29,8 @@ def test_the_conversation_is_still_there_after_a_restart(tmp_path, monkeypatch):
     restarted._load_conversation_state()
 
     assert restarted.llm.conversation_history == turns
+    # Kept apart from this session's turns, as the record of what he said last time.
+    assert restarted._previous_session_user_text == "I'm moving the scheduler to asyncio."
 
 
 def test_privacy_mode_keeps_the_transcript_off_disk(tmp_path, monkeypatch):
