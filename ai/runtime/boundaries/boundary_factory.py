@@ -1080,6 +1080,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return False
         return any(re.search(p, text) for p in _CONTINUATION_SESSION_PATTERNS)
 
+    def _offered_in_last_reply(action: Dict[str, Any]) -> bool:
+        """Whether the reply a "yes" answers is the one that offered ``action``.
+
+        A recommendation is stored on nearly every turn, so "yes" to any question
+        at all ("want me to remind you?") ran the last one: an inspection of
+        agent_loop.py. With no transcript to look at, it counts as offered.
+        """
+        history = getattr(getattr(alice, "llm", None), "conversation_history", None)
+        if not isinstance(history, list):
+            return True
+        last = next((m for m in reversed(history) if isinstance(m, dict) and m.get("role") == "assistant"), None)
+        said = str((last or {}).get("content") or "").lower()
+        target = str(action.get("target") or "").strip().lower()
+        return bool(said and target) and (target in said or target.rsplit("/", 1)[-1] in said)
+
     def _is_recommendation_approval_phrase(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
         return text in {
@@ -2029,7 +2044,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
-        if _is_recommendation_approval_phrase(req.user_input) and last_recommended_action:
+        if (
+            _is_recommendation_approval_phrase(req.user_input)
+            and last_recommended_action
+            and _offered_in_last_reply(last_recommended_action)
+        ):
             requires_approval = bool(last_recommended_action.get("requires_approval"))
             intent = "operator:continue" if requires_approval else "operator:execute_recommended_action"
             return RouterDecision(
