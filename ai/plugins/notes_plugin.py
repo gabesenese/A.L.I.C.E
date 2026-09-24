@@ -3949,6 +3949,11 @@ class NotesPlugin(PluginInterface):
         # Pattern 3: "create a note about X" or "create note: X"
         if not content:
             patterns = [
+                # "take a note: the wifi password is 4521", "make a note that ...",
+                # "note that ...": the most ordinary way to ask, and each was
+                # answered "What should the note be about?"
+                r"(?:take|make|leave|write|jot)\s+(?:down\s+)?(?:a\s+)?(?:quick\s+)?note\s*(?::|\bthat\b|\bof\b|\bsaying\b)\s*(.+)",
+                r"^(?:please\s+)?note(?:\s+that\b|\s*:)\s*(.+)",
                 r"(?:create|add|make|new)\s+(?:a\s+)?notes?\s+about\s+(.+)",
                 r"(?:create|add|make|new)\s+(?:a\s+)?notes?:\s*(.+)",
                 r"(?:create|add|make|new)\s+(?:a\s+)?notes?\s+(.+)",

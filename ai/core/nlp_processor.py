@@ -717,6 +717,13 @@ _TIMER_LEFT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "note that the dentist moved to Friday" went to notes:list and read the notes back.
+_TAKE_NOTE_RE = re.compile(
+    r"^(?:please\s+)?(?:(?:can|could)\s+you\s+)?(?:take|make|leave|jot)\s+(?:down\s+)?(?:a\s+)?(?:quick\s+)?note\b"
+    r"|^(?:please\s+)?note(?:\s+that\b|\s*:)",
+    re.IGNORECASE,
+)
+
 # "don't forget to call mom" is asking to be reminded.
 _DONT_FORGET_RE = re.compile(r"^(?:please\s+)?(?:don'?t|do\s+not)\s+(?:let\s+me\s+)?forget\b", re.IGNORECASE)
 
@@ -4386,6 +4393,10 @@ class NLPProcessor:
         # forgotten; the fact stayed in memory. "forget it" means never mind.
         if forget_topic(_raw):
             intent = "memory:delete"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+            _chosen_here = True
+        elif _TAKE_NOTE_RE.search(_raw):
+            intent = "notes:create"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
             _chosen_here = True
         elif _CANCEL_REMINDER_RE.search(_raw):

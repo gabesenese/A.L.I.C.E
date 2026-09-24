@@ -123,3 +123,28 @@ def test_the_notes_are_listed_in_plain_words(notes):
     _say(notes, "add milk and eggs to my shopping list", "notes:append")
 
     assert _say(notes, "show me my notes") == "You have one note:\n1. Shopping list — milk, eggs"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "take a note: the wifi password is 4521",
+        "make a note that the wifi password is 4521",
+        "note that the wifi password is 4521",
+    ],
+)
+def test_taking_a_note_keeps_what_he_said(notes, text):
+    """Each of these was answered "What should the note be about?"."""
+    out = notes.execute("notes:create", text, {}, {})
+
+    [note] = notes.manager.get_all_notes()
+    assert out["success"] is True
+    assert "wifi password is 4521" in note.content
+    assert not note.title.lower().startswith(("that", ":"))
+
+
+@pytest.mark.parametrize(
+    "text", ["note that the dentist moved to Friday", "take a note: call the bank", "jot down a note that X"]
+)
+def test_taking_a_note_is_routed_to_creating_one(nlp, text):
+    assert nlp.process(text).intent == "notes:create"
