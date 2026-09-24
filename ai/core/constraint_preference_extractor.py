@@ -6,17 +6,29 @@ import re
 from typing import Any, Dict
 
 
+# Asked for as a shape, not mentioned as a thing: "as a list" or "in bullet
+# points", never "my shopping list", "the playlist" or "is the build stable?".
+# Matched as substrings, those turned "Cleared your shopping list. It had eggs
+# and bread." into two bullet points.
+_TABLE_RE = re.compile(r"\b(?:tabular|(?:as|in(?:to)?)\s+a\s+table|table\s+form(?:at)?)\b")
+_BULLETS_RE = re.compile(
+    r"\bbullet(?:s|ed)?\b|\bbullet\s+points?\b|\b(?:as|in(?:to)?)\s+(?:a\s+)?(?:bulleted\s+|numbered\s+)?list\b"
+    r"|\b(?:list|point)\s+form\b|\blist\s+(?:them|those|these|it)(?:\s+out)?\b"
+)
+_NARRATIVE_RE = re.compile(r"\b(?:as|in)\s+(?:a\s+)?(?:narrative|paragraphs?|prose|story)\b")
+
+
 class ConstraintPreferenceExtractor:
     def extract(self, text: str) -> Dict[str, Any]:
         raw = str(text or "").strip()
         lower = raw.lower()
 
         format_pref = "default"
-        if any(k in lower for k in ("table", "tabular")):
+        if _TABLE_RE.search(lower):
             format_pref = "table"
-        elif any(k in lower for k in ("bullet", "bullets", "bullet points", "list")):
+        elif _BULLETS_RE.search(lower):
             format_pref = "bullet_points"
-        elif any(k in lower for k in ("narrative", "paragraph", "story")):
+        elif _NARRATIVE_RE.search(lower):
             format_pref = "narrative"
 
         detail = "normal"

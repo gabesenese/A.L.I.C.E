@@ -8,10 +8,9 @@ from typing import Any, Dict, List
 
 # Filler phrases that add length without content — removed during intelligent shortening
 _FILLER_PATTERNS = [
-    re.compile(r"\bOf course[,!]?\s*", re.IGNORECASE),
-    re.compile(r"\bCertainly[,!]?\s*", re.IGNORECASE),
-    re.compile(r"\bAbsolutely[,!]?\s*", re.IGNORECASE),
-    re.compile(r"\bSure[,!]?\s*", re.IGNORECASE),
+    # Only as an opener: "make sure" lost its "sure", and "Absolutely." answering
+    # a yes-or-no question was the whole answer.
+    re.compile(r"^(?:Of course|Certainly|Absolutely|Sure)[,!]\s*", re.IGNORECASE),
     re.compile(r"\bGreat question[!.]?\s*", re.IGNORECASE),
     re.compile(r"\bI(?:'d| would) be happy to help[.!]?\s*", re.IGNORECASE),
     re.compile(r"\bI'm glad you asked[.!]?\s*", re.IGNORECASE),
@@ -32,7 +31,10 @@ def _strip_fillers(text: str) -> str:
     out = text
     for pat in _FILLER_PATTERNS:
         out = pat.sub("", out)
-    return out.strip()
+    out = out.strip()
+    if out != text.strip() and out[:1].islower():
+        out = out[0].upper() + out[1:]
+    return out
 
 
 def _split_sentences(text: str) -> List[str]:
@@ -120,8 +122,10 @@ class AdaptiveResponseStyle:
 
         if prefs.get("format") == "bullet_points" and "\n- " not in out and out:
             sentences = _split_sentences(out)
-            if len(sentences) >= 2:
-                out = "\n".join(f"- {s}" for s in sentences[:6])
+            # Every sentence is kept: this used to stop at six and drop the rest.
+            # Two sentences read better as they are than as two bullets.
+            if len(sentences) >= 3:
+                out = "\n".join(f"- {s}" for s in sentences)
 
         if max_words > 0 and len(out.split()) > max_words:
             out = _intelligent_shorten(out, max_words)
