@@ -16,6 +16,7 @@ Supports commands like:
 """
 
 import logging
+import re
 from typing import Dict, List, Optional, Any
 
 from ai.memory.temporal_scope import Period, items_within, requested_period
@@ -27,6 +28,18 @@ logger.setLevel(logging.INFO)
 # Import the proper plugin interface
 from ai.plugins.plugin_system import PluginInterface
 from ai.memory.memory_system import MemorySystem
+
+
+# "remember that my sister's name is Ana" -> "my sister's name is Ana"
+_STORE_COMMAND_RE = re.compile(
+    r"^\s*(?:(?:hey|ok|okay)\s+alice[,!]?\s*)?(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?"
+    r"(?:remember|save|store|note|keep in mind|don'?t forget|do not forget)(?:\s+(?:that|this))?\s*[:,-]?\s*",
+    re.IGNORECASE,
+)
+
+
+def _fact_from_request(text: str) -> str:
+    return _STORE_COMMAND_RE.sub("", str(text or ""), count=1).strip().rstrip(".!")
 
 
 class MemoryPlugin(PluginInterface):
@@ -186,7 +199,15 @@ class MemoryPlugin(PluginInterface):
 
     def _store_preference(self, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """Store a user preference or fact"""
-        content = entities.get("content") or entities.get("text") or context.get("user_input", "")
+        # The router fills neither "content" nor "text", and the context carries no
+        # "user_input", so every "remember that ..." used to fail with "No content
+        # to store". The request itself is the fact, less the command.
+        content = _fact_from_request(
+            entities.get("content")
+            or entities.get("text")
+            or context.get("user_input", "")
+            or entities.get("_question", "")
+        )
 
         if not content:
             return {"success": False, "message": "No content to store"}
