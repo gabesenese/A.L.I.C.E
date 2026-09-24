@@ -167,6 +167,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
+_RECENT_FACT_QUESTION = re.compile(
+    r"\b(?:who|which\s+\w+)\s+won\b.*\b(?:last\s+night|yesterday|today|tonight|this\s+(?:week|weekend|season)"
+    r"|latest|recent(?:ly)?)\b"
+    r"|\bwhat(?:'s|\s+is|\s+was)\s+the\s+(?:final\s+)?score(?:\s+(?:of|in|for)\s+[^?]{1,40})?\s*\??$"
+    r"|\b(?:price\s+of|stock\s+price|trading\s+at|exchange\s+rate)\b",
+    re.IGNORECASE,
+)
+
+
 class ALICE:
     """
     Main A.L.I.C.E system
@@ -3408,7 +3417,12 @@ class ALICE:
             "headlines",
             "situation",
         )
-        return bool(any(cue in text for cue in freshness_cues) and any(subject in text for subject in world_subjects))
+        if any(cue in text for cue in freshness_cues) and any(subject in text for subject in world_subjects):
+            return True
+        # A question whose answer is whatever happened recently. Answered from the
+        # model's memory, "who won the game last night?" came back confident and
+        # out of date.
+        return bool(_RECENT_FACT_QUESTION.search(text))
 
     def _structured_teaching_mode_response(self, user_input: str, intent: str) -> Optional[str]:
         if not self._is_structured_teaching_request(user_input, intent):

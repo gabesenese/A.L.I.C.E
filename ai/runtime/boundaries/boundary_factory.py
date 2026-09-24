@@ -33,6 +33,7 @@ from ai.contracts import (
     ToolSchemaValidationError,
 )
 from ai.infrastructure.runtime_flags import is_enabled
+from ai.core.web_search import web_search_enabled
 from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
 from ai.memory.personal_memory import PersonalMemoryStore
 from ai.memory.project_memory import load_project_state, update_project_state
@@ -2436,7 +2437,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
-        if _looks_like_current_events_request(req.user_input):
+        if _looks_like_current_events_request(req.user_input) and not web_search_enabled():
             return RouterDecision(
                 route="local",
                 intent="freshness:current_events",

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from ai.infrastructure.paths import project_root
+from ai.core.web_search import search_web, web_search_enabled
 
 RISK_READ = "read"
 RISK_WRITE = "write"
@@ -49,6 +50,8 @@ class ToolSpec:
     intent: str = ""
     query_from: str = ""
     entity_map: Dict[str, str] = field(default_factory=dict)
+    # Offered to the model only while this returns True, for tools he opts into.
+    available: Optional[Callable[[], bool]] = None
 
     def to_schema(self) -> Dict[str, Any]:
         return {
@@ -425,6 +428,21 @@ CATALOG: List[ToolSpec] = [
         entity_map={"location": "location"},
     ),
     ToolSpec(
+        name="web_search",
+        description=(
+            "Search the web for current or recent information: news, scores, prices, releases, anything "
+            "that changes. Use it instead of answering from memory when the answer depends on today, and "
+            "say where the answer came from."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "What to search for."}},
+            "required": ["query"],
+        },
+        handler=lambda query: search_web(query),
+        available=web_search_enabled,
+    ),
+    ToolSpec(
         name="list_notes",
         description="List the user's saved notes. Use before claiming anything about what the user has written down.",
         parameters={"type": "object", "properties": {}, "required": []},
@@ -483,7 +501,11 @@ def build_tool_schemas(names: Optional[List[str]] = None, max_risk: str = RISK_O
         allowed_risk.add(RISK_OUTWARD)
 
     wanted = set(names or tool_names())
-    return [spec.to_schema() for spec in CATALOG if spec.name in wanted and spec.risk in allowed_risk]
+    return [
+        spec.to_schema()
+        for spec in CATALOG
+        if spec.name in wanted and spec.risk in allowed_risk and (spec.available is None or spec.available())
+    ]
 
 
 def sanitize_arguments(spec: ToolSpec, raw: Any) -> Dict[str, Any]:
@@ -560,4 +582,6 @@ def _summarize(tool: str, result: Dict[str, Any]) -> str:
         return f"{result.get('path', '')} ({result.get('line_count', 0)} lines)"
     if tool == "search_workspace":
         return f"{result.get('match_count', 0)} matches for {result.get('query', '')}"
+    if tool == "web_search":
+        return str(result.get("content") or f"No web results for {result.get('query', '')}")
     return ""
