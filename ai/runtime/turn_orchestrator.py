@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import logging
 import os
 import re
@@ -100,6 +100,26 @@ def _verification_fallback(
         return proposed_text
 
     return "I wasn't able to complete that — try rephrasing with a more specific action."
+
+
+def _repair_codebase_claims(text: str, diagnostics: dict) -> str:
+    """Drop the sentences that name paths the workspace does not have.
+
+    Returns "" when nothing was dropped or nothing is left, so the caller keeps
+    the honest fallback rather than an answer with holes in it.
+    """
+    from ai.runtime.operator_response_surface import drop_sentences
+
+    missing = [
+        str(item).strip()
+        for item in list(diagnostics.get("missing_paths") or []) + list(diagnostics.get("missing_directories") or [])
+        if str(item).strip()
+    ]
+    if not missing:
+        return ""
+    original = str(text or "").strip()
+    repaired = drop_sentences(original, lambda sentence, _i: any(m in sentence for m in missing)).strip()
+    return repaired if repaired and repaired != original else ""
 
 
 @dataclass(frozen=True)
@@ -320,6 +340,26 @@ class TurnOrchestrator:
                     metadata={"trace_id": trace_id},
                 )
             )
+            # One made-up path used to cost the whole answer. Drop the sentences
+            # that lean on it and check again; the verifier reports one kind of
+            # claim at a time, so a second pass can find the next.
+            for _ in range(3):
+                if verification.accepted or str(verification.reason or "") != "unverified_codebase_claim":
+                    break
+                repaired = _repair_codebase_claims(proposed.text, dict(verification.diagnostics or {}))
+                if not repaired:
+                    break
+                proposed = replace(proposed, text=repaired)
+                verification = self.boundaries.verifier.verify(
+                    VerifierRequest(
+                        user_input=user_input,
+                        decision=route_phase.decision,
+                        memory=route_phase.memory,
+                        proposed_response=proposed,
+                        tool_result=execute_phase.tool_result,
+                        metadata={"trace_id": trace_id},
+                    )
+                )
 
         return VerifyPhaseResult(
             proposed_response=proposed,

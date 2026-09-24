@@ -655,10 +655,11 @@ def test_contract_pipeline_blocks_unverified_llm_codebase_claims():
     assert result.handled is True
     assert result.metadata["route"] == "llm"
     _assert_decision_band_is_consistent(result, "execute")
-    assert result.metadata["verification"]["accepted"] is False
-    assert result.metadata["verification"]["reason"] == "unverified_codebase_claim"
-    # It says which file it could not find, instead of teaching a command.
-    assert "ai/dialogue_management.py" in result.response_text
+    # The sentence naming files that do not exist is dropped; the rest of the
+    # answer survives instead of being replaced by a canned line.
+    assert "ai/dialogue_management.py" not in result.response_text
+    assert "app/agents.py" not in result.response_text
+    assert result.response_text == "The self_learning directory contains training workflows."
     assert "inspect <filename>" not in result.response_text
 
 
