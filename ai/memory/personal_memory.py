@@ -93,7 +93,44 @@ class PersonalMemoryStore:
             )
         except Exception:
             pass
+        if normalized_kind in {"personal_fact", "relationship_context"}:
+            self._supersede_same_subject(memory_id, str(content or ""))
         return memory_id
+
+    # "Gabriel said: my sister is called Anna" -> "sister". Only "my <subject> is"
+    # statements are keyed; "I work at ..." usually adds to what she knows rather
+    # than contradicting it, so it never replaces anything.
+    _SAID_PREFIX = re.compile(r"^[\w .'-]{1,40}?\s+said:\s*", re.IGNORECASE)
+    _MY_SUBJECT = re.compile(r"\bmy\s+([\w' -]{1,40}?)\s+(?:is|are|was|were)\b", re.IGNORECASE)
+
+    @classmethod
+    def _subject_key(cls, content: str) -> str:
+        match = cls._MY_SUBJECT.search(cls._SAID_PREFIX.sub("", str(content or "").strip()))
+        if not match:
+            return ""
+        subject = " ".join(match.group(1).lower().split())
+        subject = re.sub(r"(?:'s)?\s+name$", "", subject)
+        return re.sub(r"'s$", "", subject).strip()
+
+    def _supersede_same_subject(self, memory_id: str, content: str) -> None:
+        """A newer fact about the same thing replaces the older one.
+
+        "Actually, my sister is called Anna" was stored next to "my sister's name
+        is Ana" and both stayed valid, so what she knew depended on which one
+        recall ranked first. Consolidation only merges near-identical wording.
+        """
+        key = self._subject_key(content)
+        if not key:
+            return
+        for row in self._iter_structured_entries():
+            row_id = str(row.get("id") or "")
+            ctx = row.get("context") or {}
+            if row_id == str(memory_id) or ctx.get("invalid") or ctx.get("superseded"):
+                continue
+            if str(row.get("content") or "").strip() == content.strip():
+                continue
+            if self._subject_key(str(row.get("content") or "")) == key:
+                self._update_entry_context(row_id, {"superseded": True, "superseded_by": str(memory_id)})
 
     def find_recent_structured_memories(
         self,
