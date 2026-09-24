@@ -14,7 +14,7 @@ import os
 import re
 import threading
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Iterable, List, Optional, Tuple
@@ -35,6 +35,10 @@ class Reminder:
     due: str
     created: str
     fired: bool = False
+    # "daily", "weekdays" or "weekly:<0-6>"; a repeating reminder is re-armed, not retired.
+    repeat: str = ""
+    # "timer" for "set a timer for 10 minutes", said differently when it is up.
+    kind: str = ""
 
     @property
     def due_at(self) -> datetime:
@@ -166,6 +170,150 @@ def parse_reminder(text: str, now: Optional[datetime] = None) -> Optional[Tuple[
     return (task, due) if task else None
 
 
+# -- repeating reminders and timers ------------------------------------------
+
+_WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+_REPEAT_RE = re.compile(
+    r"\b(?:every\s+day|each\s+day|daily|every\s+(?P<part>morning|afternoon|evening|night)"
+    r"|every\s+weekday|on\s+weekdays|weekdays"
+    r"|every\s+(?P<weekday>monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+    r"|on\s+(?P<weekdays>monday|tuesday|wednesday|thursday|friday|saturday|sunday)s)\b",
+    re.IGNORECASE,
+)
+_PART_OF_DAY = {"morning": "this morning", "afternoon": "this afternoon", "evening": "this evening", "night": "tonight"}
+
+
+@dataclass
+class ReminderRequest:
+    task: str
+    due: Optional[datetime]
+    repeat: str = ""
+
+
+def parse_request(text: str, now: Optional[datetime] = None) -> Optional[ReminderRequest]:
+    """Like parse_reminder, and also hears "every day", "on weekdays", "every Monday".
+
+    "remind me every day at 8am to take my pills" was one reminder, for
+    tomorrow, to "every day to take my pills".
+    """
+    now = now or datetime.now()
+    raw = str(text or "")
+    repeat = ""
+    match = _REPEAT_RE.search(raw)
+    if match:
+        weekday = (match.group("weekday") or match.group("weekdays") or "").lower()
+        if weekday:
+            repeat = f"weekly:{_WEEKDAYS.index(weekday)}"
+        elif "weekday" in match.group(0).lower():
+            repeat = "weekdays"
+        else:
+            repeat = "daily"
+        # "every morning" still says when: this morning's default hour.
+        part = _PART_OF_DAY.get((match.group("part") or "").lower(), "")
+        raw = f"{raw[: match.start()]} {part} {raw[match.end() :]}"
+    parsed = parse_reminder(raw, now)
+    if parsed is None:
+        return None
+    task, due = parsed
+    if repeat and due is None:
+        due = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    bare = _AT_RE.search(raw)
+    if repeat and due is not None and bare and not bare.group(3) and int(bare.group(1)) <= 12:
+        # "every Monday at 9" is the morning, as "tomorrow at 9" is: the soonest
+        # 9 o'clock from now would be tonight's, on the wrong day anyway.
+        hour = int(bare.group(1)) % 12
+        hour += 12 if hour < 7 else 0
+        due = due.replace(hour=hour, minute=int(bare.group(2) or 0))
+    if repeat and due is not None:
+        while due <= now or not _repeats_on(repeat, due):
+            due += timedelta(days=1)
+    return ReminderRequest(task=task, due=due, repeat=repeat)
+
+
+def _repeats_on(repeat: str, moment: datetime) -> bool:
+    if repeat == "weekdays":
+        return moment.weekday() < 5
+    if repeat.startswith("weekly:"):
+        return moment.weekday() == int(repeat.split(":", 1)[1])
+    return True
+
+
+def next_repeat(due: datetime, repeat: str, now: datetime) -> datetime:
+    """The next time a repeating reminder is due after ``now``."""
+    following = due + timedelta(days=1)
+    while following <= now or not _repeats_on(repeat, following):
+        following += timedelta(days=1)
+    return following
+
+
+def describe_repeat(repeat: str, due: datetime) -> str:
+    if repeat == "weekdays":
+        return f"every weekday at {clock_time(due)}"
+    if repeat.startswith("weekly:"):
+        return f"every {_WEEKDAYS[int(repeat.split(':', 1)[1])].capitalize()} at {clock_time(due)}"
+    return f"every day at {clock_time(due)}"
+
+
+_TO_YOU = (
+    (re.compile(r"\bmyself\b", re.IGNORECASE), "yourself"),
+    (re.compile(r"\bmy\b", re.IGNORECASE), "your"),
+    (re.compile(r"\bmine\b", re.IGNORECASE), "yours"),
+    (re.compile(r"\bI'm\b", re.IGNORECASE), "you're"),
+    (re.compile(r"\bI\s+am\b", re.IGNORECASE), "you are"),
+    (re.compile(r"\bme\b", re.IGNORECASE), "you"),
+    (re.compile(r"\bI\b"), "you"),
+)
+
+
+def said_back(text: str) -> str:
+    """What to remind him of, in her words: "take my pills" is "take your pills"."""
+    out = str(text or "")
+    for pattern, replacement in _TO_YOU:
+        out = pattern.sub(replacement, out)
+    return out
+
+
+_TIMER_WORD_RE = re.compile(r"\btimer\b", re.IGNORECASE)
+_DURATION_RE = re.compile(
+    r"(?P<n>\d+(?:\.\d+)?|half\s+an|an?|one|two|three|four|five|ten|fifteen|twenty|thirty|forty-five)\s*-?\s*"
+    r"(?P<unit>sec(?:ond)?s?|min(?:ute)?s?|hours?|hrs?)\b",
+    re.IGNORECASE,
+)
+_TIMER_LABEL_RE = re.compile(r"\bfor\s+(?:the\s+|my\s+)?(?P<label>[a-z][a-z' -]{1,30}?)\s*[.!?]*$", re.IGNORECASE)
+
+
+def parse_timer(text: str) -> Optional[Tuple[float, str]]:
+    """(minutes, label) from "set a timer for 10 minutes for the pasta", or None."""
+    raw = str(text or "")
+    if not _TIMER_WORD_RE.search(raw):
+        return None
+    duration = _DURATION_RE.search(raw)
+    if not duration:
+        return None
+    amount_text = duration.group("n").lower()
+    amount = 0.5 if amount_text.startswith("half") else _WORD_NUMBERS.get(amount_text)
+    if amount is None:
+        amount = float(amount_text)
+    unit = next(minutes for key, minutes in _UNITS.items() if duration.group("unit").lower().startswith(key))
+    label_match = _TIMER_LABEL_RE.search(raw[duration.end() :])
+    label = label_match.group("label").strip() if label_match else ""
+    if _DURATION_RE.fullmatch(label) or label.lower() in {"me", "us"}:
+        label = ""
+    return amount * unit, label
+
+
+def describe_duration(minutes: float) -> Tuple[str, str]:
+    """("10 minutes", "10-minute") for a timer of ``minutes``."""
+    if minutes < 1:
+        seconds = int(round(minutes * 60))
+        return f"{seconds} seconds", f"{seconds}-second"
+    if minutes >= 60 and minutes % 60 == 0:
+        hours = int(minutes // 60)
+        return (f"{hours} hour" + ("s" if hours != 1 else "")), f"{hours}-hour"
+    whole = int(minutes) if float(minutes).is_integer() else minutes
+    return (f"{whole} minute" + ("s" if whole != 1 else "")), f"{whole}-minute"
+
+
 def clock_time(due: datetime) -> str:
     return due.strftime("%I:%M %p").lstrip("0")
 
@@ -206,7 +354,7 @@ class ReminderStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps([asdict(r) for r in reminders], indent=2), encoding="utf-8")
 
-    def add(self, text: str, due: datetime) -> Reminder:
+    def add(self, text: str, due: datetime, repeat: str = "", kind: str = "") -> Reminder:
         with self._lock:
             reminders = self._load()
             reminder = Reminder(
@@ -214,6 +362,8 @@ class ReminderStore:
                 text=str(text).strip(),
                 due=due.replace(microsecond=0).isoformat(),
                 created=datetime.now().replace(microsecond=0).isoformat(),
+                repeat=str(repeat or ""),
+                kind=str(kind or ""),
             )
             reminders.append(reminder)
             self._save(reminders)
@@ -239,11 +389,16 @@ class ReminderStore:
         with self._lock:
             reminders = self._load()
             due = [r for r in reminders if not r.fired and r.due_at <= now]
+            delivered = [replace(r) for r in due]
             if due:
                 for reminder in due:
-                    reminder.fired = True
+                    if reminder.repeat:
+                        # Said now, and set again for its next time.
+                        reminder.due = next_repeat(reminder.due_at, reminder.repeat, now).isoformat()
+                    else:
+                        reminder.fired = True
                 self._save(reminders)
-            return due
+            return delivered
 
     def last_fired(self) -> Optional[Reminder]:
         fired = [r for r in self._load() if r.fired]
@@ -280,9 +435,12 @@ class ReminderStore:
 
 def reminder_message(reminder: Reminder, now: Optional[datetime] = None) -> str:
     now = now or datetime.now()
+    if reminder.kind == "timer":
+        return f"Time's up. That was your {reminder.text}."
+    text = said_back(reminder.text)
     if now - reminder.due_at > timedelta(minutes=2):
-        return f"Reminder: {reminder.text}. (It was due {describe_time(reminder.due_at, reminder.due_at)}.)"
-    return f"Reminder: {reminder.text}."
+        return f"Reminder: {text}. (It was due {describe_time(reminder.due_at, reminder.due_at)}.)"
+    return f"Reminder: {text}."
 
 
 class ReminderWatcher:
@@ -374,7 +532,7 @@ def agenda(
 ) -> List[Tuple[datetime, str, bool]]:
     """Reminders and notes falling due between ``start`` and ``end``, soonest
     first, each with whether it has a time of day or only a date."""
-    items = [(r.due_at, r.text, True) for r in store.pending() if start <= r.due_at < end]
+    items = [(r.due_at, said_back(r.text), True) for r in store.pending() if start <= r.due_at < end]
     for note in notes or []:
         found = _note_due(note)
         if found is not None and start <= found[0] < end:

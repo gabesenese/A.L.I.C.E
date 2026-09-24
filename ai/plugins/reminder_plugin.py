@@ -17,8 +17,13 @@ from ai.planning.reminders import (
     agenda_window,
     clock_time,
     describe_day,
+    describe_duration,
+    describe_repeat,
     describe_time,
     parse_reminder,
+    parse_request,
+    parse_timer,
+    said_back,
 )
 from ai.plugins.plugin_system import PluginInterface
 
@@ -61,10 +66,14 @@ class ReminderPlugin(PluginInterface):
             if moved is not None:
                 return moved
 
-        parsed = parse_reminder(query, now)
-        if parsed is None:
+        timer = parse_timer(query)
+        if timer is not None:
+            return self._start_timer(*timer, now=now)
+
+        request = parse_request(query, now)
+        if request is None:
             return {"success": False, "response": "I couldn't tell what to remind you about."}
-        task, due = parsed
+        task, due, repeat = request.task, request.due, request.repeat
         if task.lower() in {"again", "me again", "it again", "that again", "about it again", "it", "that", "about it"}:
             last = self.store.last_fired()
             if last is None:
@@ -75,15 +84,27 @@ class ReminderPlugin(PluginInterface):
             # Asked rather than guessed: a reminder at the wrong time is worse than none.
             return {
                 "success": True,
-                "response": f"When should I remind you {about} {task}?",
+                "response": f"When should I remind you {about} {said_back(task)}?",
                 "data": {"task": task, "needs_time": True},
             }
-        self._last_set_id = self.store.add(task, due).id
-        when = describe_time(due, now)
+        self._last_set_id = self.store.add(task, due, repeat=repeat).id
+        when = describe_repeat(repeat, due) if repeat else describe_time(due, now)
         return {
             "success": True,
-            "response": f"Okay, I'll remind you {about} {task} {when}.",
-            "data": {"task": task, "due": due.isoformat(timespec="minutes"), "when": when},
+            "response": f"Okay, I'll remind you {about} {said_back(task)} {when}.",
+            "data": {"task": task, "due": due.isoformat(timespec="minutes"), "when": when, "repeat": repeat},
+        }
+
+    def _start_timer(self, minutes: float, label: str, now: datetime) -> Dict[str, Any]:
+        """A timer: "set a timer for 10 minutes" went to the model, which has no clock to run."""
+        spoken, adjective = describe_duration(minutes)
+        text = f"{adjective} timer" + (f" for the {label}" if label else "")
+        due = now + timedelta(minutes=minutes)
+        self._last_set_id = self.store.add(text, due, kind="timer").id
+        return {
+            "success": True,
+            "response": f"Okay, {spoken}" + (f" for the {label}" if label else "") + ", starting now.",
+            "data": {"timer": text, "due": due.isoformat(timespec="seconds")},
         }
 
     def _reschedule(self, when: str, now: datetime) -> Optional[Dict[str, Any]]:
@@ -122,7 +143,10 @@ class ReminderPlugin(PluginInterface):
         pending = self.store.pending()
         if not pending:
             return {"success": True, "response": "You have no reminders set.", "data": {"count": 0}}
-        items = [f"{r.text} {describe_time(r.due_at, now)}" for r in pending]
+        items = [
+            f"{said_back(r.text)} {describe_repeat(r.repeat, r.due_at) if r.repeat else describe_time(r.due_at, now)}"
+            for r in pending
+        ]
         return {
             "success": True,
             "response": "Your reminders: " + "; ".join(items) + ".",

@@ -138,6 +138,7 @@ from ai.core.route_coordinator import RouteCoordinator, RouteCoordinatorConfig
 from ai.core.goal_recognizer import get_goal_recognizer
 from ai.core.followups import DAY_FOLLOWUP_RE, RESCHEDULE_RE, more_items
 from ai.memory.forgetting import forget_topic
+from ai.planning.reminders import parse_timer
 from ai.core.foundation_layers import FoundationLayers
 from ai.plugins.registry import PluginRegistry, discover_plugins
 
@@ -4368,7 +4369,8 @@ class NLPProcessor:
             intent = "memory:delete"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
             _chosen_here = True
-        elif _DONT_FORGET_RE.search(_raw):
+        elif _DONT_FORGET_RE.search(_raw) or parse_timer(_raw):
+            # "set a timer for 10 minutes" went to the model, which has no clock.
             intent = "reminder:set"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
             _chosen_here = True
