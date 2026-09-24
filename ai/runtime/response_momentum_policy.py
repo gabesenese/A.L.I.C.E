@@ -208,7 +208,11 @@ def apply_response_momentum(
             "i reviewed",
         )
         if any(token in low for token in background_claims):
-            return "I'm good.\n\nStill focused."
+            # She does nothing between turns, so a sentence claiming she did is
+            # dropped. The rest of the reply stands.
+            text = drop_sentences(text, lambda sentence, _i: any(t in sentence.lower() for t in background_claims))
+            if not text.strip():
+                return "I'm good."
         return normalize_response_paragraphs(_enforce_claim_evidence(text, local))
 
     if normalized_intent == "conversation:clarification_needed" and normalized_route == "llm":

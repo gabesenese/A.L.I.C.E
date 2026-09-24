@@ -27,3 +27,15 @@ def test_a_short_answer_is_not_swapped_for_a_label():
     # app/main.py." -- or, past the renderer, as a promise to try again.
     assert _render("It runs.") == "It runs."
     assert _render("Yes.") == "Yes."
+
+
+def test_a_made_up_background_claim_is_dropped_not_the_whole_reply():
+    out = apply_response_momentum(
+        user_input="how are you?",
+        response_text="Doing well, thanks. I've been monitoring your repo all night. How was the gig?",
+        intent="conversation:general",
+        route="llm",
+    )
+
+    assert "monitoring" not in out
+    assert "Doing well, thanks." in out and "How was the gig?" in out
