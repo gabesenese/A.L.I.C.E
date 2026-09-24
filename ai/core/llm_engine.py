@@ -55,12 +55,112 @@ logger = logging.getLogger(__name__)
 
 
 class LLMUnavailableError(Exception):
-    """The model server did not answer: it is not running, or it timed out.
+    """The model could not answer, for a reason the user should be told.
 
     A subclass of Exception so existing broad handlers keep working, but
-    distinct so the reply can say the model is down instead of blaming the
-    user's wording.
+    distinct so the reply can say what is wrong instead of blaming the user's
+    wording. ``reason`` is one of "unreachable", "timeout", "rate_limited" or
+    "model_missing".
     """
+
+    def __init__(self, message: str, *, reason: str = "unreachable", model: str = ""):
+        super().__init__(message)
+        self.reason = reason
+        self.model = model
+
+
+class LLMRequestError(Exception):
+    """Ollama refused the request. Carries the status and body so callers can react."""
+
+    def __init__(self, status: int, body: str = ""):
+        super().__init__(f"LLM API error: {status}")
+        self.status = int(status)
+        self.body = str(body or "")
+
+
+# The model is the one variable. Every entry point (CLI, Rich UI, API, quality
+# harness) reaches the engine through LLMConfig, so reading the environment here
+# is what makes ALICE_MODEL and ALICE_OLLAMA_HOST work everywhere. The CLI, the
+# API and LLMConfig used to default to three different models, and the host was
+# never passed to the engine at all.
+DEFAULT_MODEL = "llama3.1:8b"
+DEFAULT_HOST = "http://localhost:11434"
+# Set on every request. Ollama's own default is small enough to silently cut the
+# system prompt and history from the front.
+DEFAULT_NUM_CTX = 8192
+
+
+def configured_model(explicit: Optional[str] = None) -> str:
+    return str(explicit or os.environ.get("ALICE_MODEL") or DEFAULT_MODEL).strip()
+
+
+def configured_host(explicit: Optional[str] = None) -> str:
+    host = str(explicit or os.environ.get("ALICE_OLLAMA_HOST") or os.environ.get("OLLAMA_HOST") or DEFAULT_HOST).strip()
+    if "://" not in host:
+        host = f"http://{host}"
+    return host.rstrip("/")
+
+
+def configured_num_ctx(explicit: Optional[int] = None) -> int:
+    try:
+        return int(explicit or os.environ.get("ALICE_NUM_CTX") or DEFAULT_NUM_CTX)
+    except (TypeError, ValueError):
+        return DEFAULT_NUM_CTX
+
+
+def is_cloud_model(model: str) -> bool:
+    low = str(model or "").lower()
+    return low.endswith("-cloud") or low.endswith(":cloud")
+
+
+_THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning(text: str) -> str:
+    """Remove a thinking model's reasoning from the text meant for the user.
+
+    Some models and Ollama versions put the reasoning in ``message.thinking``,
+    which is simply never read; others inline it as <think>...</think>. An
+    unclosed <think> means the answer never started, so nothing is left.
+    """
+    cleaned = _THINK_BLOCK.sub("", str(text or ""))
+    opened = cleaned.lower().find("<think>")
+    if opened != -1:
+        cleaned = cleaned[:opened]
+    return cleaned.strip()
+
+
+class _StreamingReasoningFilter:
+    """Drop <think>...</think> from a token stream, even when a tag is split across chunks."""
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._inside = False
+
+    def feed(self, chunk: str) -> str:
+        self._buffer += str(chunk or "")
+        out = []
+        while self._buffer:
+            tag = "</think>" if self._inside else "<think>"
+            idx = self._buffer.lower().find(tag)
+            if idx == -1:
+                # Keep back anything that could be the start of a split tag.
+                keep = next((n for n in range(len(tag) - 1, 0, -1) if tag.startswith(self._buffer[-n:].lower())), 0)
+                if not self._inside:
+                    out.append(self._buffer[: len(self._buffer) - keep])
+                self._buffer = self._buffer[len(self._buffer) - keep :]
+                break
+            if not self._inside:
+                out.append(self._buffer[:idx])
+            self._buffer = self._buffer[idx + len(tag) :]
+            if self._inside:
+                self._buffer = self._buffer.lstrip()
+            self._inside = not self._inside
+        return "".join(out)
+
+    def flush(self) -> str:
+        rest, self._buffer = ("" if self._inside else self._buffer), ""
+        return rest
 
 
 @dataclass(frozen=True)
@@ -134,16 +234,21 @@ class LLMConfig:
 
     def __init__(
         self,
-        model: str = "llama3.3:70b",
-        base_url: str = "http://localhost:11434",
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
         temperature: float = 0.7,
         max_history: int = 30,  # Increased from 20 for better context retention
-        timeout: int = 90,  # 90s timeout for llama3.3:70b reliability
+        timeout: int = 90,
         use_fine_tuned: bool = True,  # Use fine-tuned model if available
         transport: Optional[LLMTransportPolicy] = None,
+        num_ctx: Optional[int] = None,
     ):
-        self.model = model
-        self.base_url = base_url
+        # A model someone named (argument or ALICE_MODEL) is never swapped for
+        # another one behind their back; only the built-in default may be.
+        self.model_pinned = bool(model or os.environ.get("ALICE_MODEL"))
+        self.model = configured_model(model)
+        self.base_url = configured_host(base_url)
+        self.num_ctx = configured_num_ctx(num_ctx)
         self.temperature = temperature
         self.max_history = max_history
         self.timeout = timeout
@@ -360,6 +465,10 @@ class LocalLLMEngine:
     Designed for powerful systems (RTX 5070 Ti, 32GB RAM)
     """
 
+    # Learned from the server's answers, so each is paid for once per engine.
+    _think_supported = True
+    _tools_supported = True
+
     def __init__(self, config: Optional[LLMConfig] = None):
         self.config = config or LLMConfig()
         self.conversation_history = []
@@ -541,6 +650,11 @@ class LocalLLMEngine:
         active_model = str(self.config.active_model or "").strip()
         if active_model in model_names:
             return
+        if getattr(self.config, "model_pinned", False) or is_cloud_model(active_model):
+            # Cloud models need not appear in the local tag list, and a model the
+            # user chose is not ours to replace. A missing one fails loudly at
+            # request time with the pull command instead.
+            return
 
         base = active_model.split(":", 1)[0].lower()
         same_family = [m for m in model_names if m.lower().startswith(f"{base}:")]
@@ -580,6 +694,53 @@ class LocalLLMEngine:
             logger.debug("Personality prompt shaping unavailable: %s", exc)
             return prompt
 
+    def _think_value(self) -> Any:
+        # Conversational turns do not need visible reasoning, and it costs
+        # latency. gpt-oss cannot switch it off, only down to a level.
+        return "low" if "gpt-oss" in str(self.config.active_model or "").lower() else False
+
+    def _prepare_payload(self, url: str, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        body = dict(payload or {})
+        if not (url.endswith("/api/chat") or url.endswith("/api/generate")):
+            return body
+        options = dict(body.get("options") or {})
+        # num_gpu is the number of layers offloaded to the GPU, so the 1 that was
+        # hard-coded here kept nearly the whole model on the CPU. Ollama picks
+        # both of these better than a constant can.
+        options.pop("num_gpu", None)
+        options.pop("num_thread", None)
+        options["num_ctx"] = int(getattr(self.config, "num_ctx", DEFAULT_NUM_CTX) or DEFAULT_NUM_CTX)
+        body["options"] = options
+        if self._think_supported and "think" not in body:
+            body["think"] = self._think_value()
+        return body
+
+    @staticmethod
+    def _auth_headers() -> Dict[str, str]:
+        key = str(os.environ.get("OLLAMA_API_KEY") or "").strip()
+        return {"Authorization": f"Bearer {key}"} if key else {}
+
+    def _http_post(self, url: str, json: Optional[Dict[str, Any]] = None, timeout: Any = None, stream: bool = False):
+        """The one place a request leaves for Ollama."""
+        body = self._prepare_payload(url, json)
+        kwargs: Dict[str, Any] = {"json": body, "timeout": timeout}
+        if stream:
+            kwargs["stream"] = True
+        headers = self._auth_headers()
+        if headers:
+            kwargs["headers"] = headers
+        response = requests.post(url, **kwargs)
+        if (
+            getattr(response, "status_code", 200) == 400
+            and "think" in body
+            and "think" in str(getattr(response, "text", "") or "").lower()
+        ):
+            # An older server or a model with no thinking switch: stop sending it.
+            self._think_supported = False
+            body.pop("think", None)
+            response = requests.post(url, **kwargs)
+        return response
+
     def _post_with_retry(
         self,
         url: str,
@@ -603,7 +764,7 @@ class LocalLLMEngine:
 
         for attempt in range(1, attempts + 1):
             try:
-                response = requests.post(url, json=payload, timeout=request_timeout)
+                response = self._http_post(url, json=payload, timeout=request_timeout)
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
                 last_error = exc
                 if isinstance(exc, requests.exceptions.ConnectionError) and attempt == 1:
@@ -620,9 +781,18 @@ class LocalLLMEngine:
                     return dict(response.json() or {})
 
                 body = str(getattr(response, "text", "") or "")[:200]
+                model = str(payload.get("model") or "")
+                if response.status_code == 429:
+                    # A usage limit (Ollama cloud). Retrying inside the turn only
+                    # burns the wait; the user needs to know which limit it is.
+                    logger.error("LLM %s rate limited: %s", what, body)
+                    raise LLMUnavailableError("usage limit reached", reason="rate_limited", model=model)
+                if response.status_code == 404 and "not found" in body.lower():
+                    logger.error("LLM %s: model %s is not installed", what, model)
+                    raise LLMUnavailableError(f"model {model} not found", reason="model_missing", model=model)
                 if not transport.should_retry_status(response.status_code):
                     logger.error("LLM %s error: %s - %s", what, response.status_code, body)
-                    raise Exception(f"LLM API error: {response.status_code}")
+                    raise LLMRequestError(response.status_code, body)
 
                 last_error = Exception(f"LLM API error: {response.status_code}")
                 logger.warning(
@@ -638,7 +808,7 @@ class LocalLLMEngine:
 
         if isinstance(last_error, requests.exceptions.Timeout):
             logger.error("Request timeout after %d attempts", attempts)
-            raise LLMUnavailableError("Request timeout - please try again") from last_error
+            raise LLMUnavailableError("Request timeout - please try again", reason="timeout") from last_error
         if isinstance(last_error, requests.exceptions.ConnectionError):
             logger.error("Ollama unreachable after %d attempts", attempts)
             raise LLMUnavailableError("Service temporarily unavailable - Ollama not running") from last_error
@@ -761,7 +931,7 @@ class LocalLLMEngine:
 
         # Stripped before it is recorded, not just before it is shown: a leaked
         # "Alice:" left in the transcript re-primes the label on every later turn.
-        assistant_message = strip_speaker_label(str((result.get("message") or {}).get("content") or ""))
+        assistant_message = strip_speaker_label(strip_reasoning((result.get("message") or {}).get("content") or ""))
         if not assistant_message:
             logger.warning("LLM returned an empty chat response")
             return ""
@@ -803,7 +973,7 @@ class LocalLLMEngine:
 
             # Use fine-tuned model if available
             active_model = self.config.active_model
-            response = requests.post(
+            response = self._http_post(
                 f"{self.config.base_url}/api/chat",
                 json={
                     "model": active_model,
@@ -834,6 +1004,7 @@ class LocalLLMEngine:
                 return
 
             full_response = ""
+            reasoning = _StreamingReasoningFilter()
             for line in response.iter_lines():
                 if line:
                     try:
@@ -844,11 +1015,17 @@ class LocalLLMEngine:
                             yield f"\n\n[ERROR] {err}"
                             return
                         if "message" in chunk:
-                            content = chunk["message"].get("content", "")
-                            full_response += content
-                            yield content
+                            # message.thinking is never read; inline tags are filtered.
+                            content = reasoning.feed(chunk["message"].get("content", ""))
+                            if content:
+                                full_response += content
+                                yield content
                     except json.JSONDecodeError:
                         continue
+            tail = reasoning.flush()
+            if tail:
+                full_response += tail
+                yield tail
 
             if not full_response.strip():
                 logger.warning("Streaming returned no content")
@@ -918,17 +1095,27 @@ class LocalLLMEngine:
             "stream": False,
             "options": options,
         }
-        if tools:
+        if tools and self._tools_supported:
             payload["tools"] = list(tools)
 
-        result = self._post_with_retry(
-            f"{self.config.base_url}/api/chat",
-            payload,
-            what="tool call",
-        )
+        try:
+            result = self._post_with_retry(
+                f"{self.config.base_url}/api/chat",
+                payload,
+                what="tool call",
+            )
+        except LLMRequestError as exc:
+            if "tools" not in payload or "does not support tools" not in exc.body.lower():
+                raise
+            # Some models have no tool calling. The turn still deserves an answer,
+            # so it becomes a plain chat turn, and later turns skip the attempt.
+            logger.warning("Model %s does not support tools; answering without them", payload.get("model"))
+            self._tools_supported = False
+            payload.pop("tools", None)
+            result = self._post_with_retry(f"{self.config.base_url}/api/chat", payload, what="chat")
         message = dict(result.get("message") or {})
         return ChatResponse(
-            content=str(message.get("content") or "").strip(),
+            content=strip_reasoning(message.get("content") or ""),
             tool_calls=self._parse_tool_calls(message),
             raw=result,
         )
@@ -970,7 +1157,7 @@ class LocalLLMEngine:
     async def embed(self, text: str) -> List[float]:
         try:
             response = await asyncio.to_thread(
-                requests.post,
+                self._http_post,
                 f"{self.config.base_url}/api/embeddings",
                 json={
                     "model": "nomic-embed-text",
@@ -1034,7 +1221,7 @@ class LocalLLMEngine:
                 options["num_predict"] = max(1, int(max_tokens))
 
             active_model = self.config.active_model
-            response = requests.post(
+            response = self._http_post(
                 f"{self.config.base_url}/api/generate",
                 json={
                     "model": active_model,
@@ -1047,7 +1234,7 @@ class LocalLLMEngine:
 
             if response.status_code == 200:
                 result = response.json()
-                text = str(result.get("response", "")).strip()
+                text = strip_reasoning(result.get("response", ""))
                 if text:
                     return text
 
@@ -1109,7 +1296,7 @@ class LocalLLMEngine:
             timeout=timeout,
             what="knowledge query",
         )
-        return str((result.get("message") or {}).get("content") or "")
+        return strip_reasoning((result.get("message") or {}).get("content") or "")
 
     def parse_complex_input(self, user_input: str) -> Dict[str, Any]:
         """
@@ -1137,7 +1324,7 @@ Input: {user_input}"""
             ]
 
             active_model = self.config.active_model
-            response = requests.post(
+            response = self._http_post(
                 f"{self.config.base_url}/api/chat",
                 json={
                     "model": active_model,
@@ -1155,7 +1342,7 @@ Input: {user_input}"""
 
             if response.status_code == 200:
                 result = response.json()
-                content = result["message"]["content"]
+                content = strip_reasoning(result["message"]["content"])
 
                 # Try to parse as JSON, fallback to structured response
                 try:
@@ -1226,7 +1413,7 @@ Please phrase this naturally using the specified tone. Keep Alice's personality 
             ]
 
             active_model = self.config.active_model
-            response = requests.post(
+            response = self._http_post(
                 f"{self.config.base_url}/api/chat",
                 json={
                     "model": active_model,
@@ -1244,7 +1431,7 @@ Please phrase this naturally using the specified tone. Keep Alice's personality 
 
             if response.status_code == 200:
                 result = response.json()
-                phrased = result["message"]["content"]
+                phrased = strip_reasoning(result["message"]["content"])
                 if not allow_user_name:
                     phrased = re.sub(
                         r"^(?:for|hey|hi|hello)\s+(?:the user|user|testuser|[A-Z][\w-]*)[:,!]?\s*",
@@ -1295,7 +1482,7 @@ Provide:
             ]
 
             active_model = self.config.active_model
-            response = requests.post(
+            response = self._http_post(
                 f"{self.config.base_url}/api/chat",
                 json={
                     "model": active_model,
@@ -1320,7 +1507,7 @@ Provide:
                 }
 
             result = response.json()
-            content = str((result.get("message") or {}).get("content") or "")
+            content = strip_reasoning((result.get("message") or {}).get("content") or "")
 
             # Try to parse structured response
             try:

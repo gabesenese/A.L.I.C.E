@@ -474,6 +474,26 @@ def _is_rejection_phrase(text: str) -> bool:
     return str(text or "").strip().strip(".!").lower() in _REJECTION_PHRASES
 
 
+def _llm_unavailable_text(exc: LLMUnavailableError) -> str:
+    """One sentence on what is down and what fixes it, in the user's terms."""
+    reason = str(getattr(exc, "reason", "") or "")
+    model = str(getattr(exc, "model", "") or "")
+    if reason == "rate_limited":
+        return (
+            "I've hit the cloud model's usage limit, so I can't answer that right now. "
+            "It resets on its own, or you can point ALICE_MODEL at a local model."
+        )
+    if reason == "model_missing":
+        name = model or "my model"
+        return f"{name} isn't installed, so I can't answer yet. Run `ollama pull {name}`, then ask again."
+    if reason == "timeout" or "timeout" in str(exc).lower():
+        return "My language model didn't answer in time, so I can't answer that yet. Give it a moment and ask again."
+    return (
+        "I can't reach my language model, so I can't answer that right now. "
+        "Check that Ollama is running (`ollama serve`), then ask again."
+    )
+
+
 def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     """Create runtime boundaries backed by current ALICE components."""
 
@@ -3287,15 +3307,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 # Not the user's fault, and asking them to rephrase changes
                 # nothing. Say what is down and what fixes it. This goes out
                 # unpolished: every polish and gate step needs the same model.
-                timed_out = "timeout" in str(exc).lower()
                 return ResponseOutput(
-                    text=(
-                        "My language model didn't answer in time, so I can't answer that yet. "
-                        "Give it a moment and ask again."
-                        if timed_out
-                        else "I can't reach my language model, so I can't answer that right now. "
-                        "Check that Ollama is running (`ollama serve`), then ask again."
-                    ),
+                    text=_llm_unavailable_text(exc),
                     confidence=0.9,
                     metadata={"type": "llm_unavailable", "error": str(exc)},
                 )

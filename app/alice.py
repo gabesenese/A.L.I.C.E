@@ -51,7 +51,7 @@ from app.main import ALICE
 
 def start_alice_rich(
     voice_enabled=False,
-    llm_model="llama3.1:8b",
+    llm_model=None,
     user_name="Gabriel",
     debug=False,
     privacy_mode=False,
@@ -188,8 +188,8 @@ For debugging with full logs:
     parser.add_argument(
         "--model",
         type=str,
-        default="llama3.1:8b",
-        help="LLM model to use (default: llama3.1:8b)",
+        default=None,
+        help="Ollama model (default: $ALICE_MODEL, else llama3.1:8b)",
     )
 
     parser.add_argument(

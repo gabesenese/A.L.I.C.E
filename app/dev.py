@@ -225,7 +225,7 @@ class ALICERunner:
     def __init__(
         self,
         voice_enabled=False,
-        model="llama3.1:8b",
+        model=None,
         show_thinking=True,
         llm_policy="default",
     ):
@@ -245,7 +245,9 @@ class ALICERunner:
         """Build ALICE command"""
         # Get the path to alice.py (in the app directory)
         alice_script = Path(__file__).parent / "alice.py"
-        cmd = [sys.executable, str(alice_script), "--model", self.model]
+        cmd = [sys.executable, str(alice_script)]
+        if self.model:
+            cmd += ["--model", self.model]
 
         if self.voice_enabled:
             cmd.append("--voice")
@@ -360,7 +362,7 @@ class ALICERunner:
 
 def run_dev_mode(
     voice_enabled=False,
-    model="llama3.1:8b",
+    model=None,
     watch=True,
     show_thinking=True,
     llm_policy="default",
@@ -495,8 +497,8 @@ Examples:
     parser.add_argument(
         "--model",
         type=str,
-        default="llama3.1:8b",
-        help="LLM model to use (default: llama3.1:8b)",
+        default=None,
+        help="Ollama model (default: $ALICE_MODEL, else llama3.1:8b)",
     )
 
     parser.add_argument("--no-watch", action="store_true", help="Disable file watching (no auto-reload)")

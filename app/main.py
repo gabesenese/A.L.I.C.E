@@ -32,7 +32,7 @@ CLASSIFIER_WARM_SHUTDOWN_WAIT_SECONDS = 10.0
 
 # Import ALICE components
 from ai.core.nlp_processor import NLPProcessor
-from ai.core.llm_engine import LocalLLMEngine, LLMConfig
+from ai.core.llm_engine import LocalLLMEngine, LLMConfig, configured_model
 from ai.memory.context_engine import get_context_engine
 from ai.memory.memory_system import MemorySystem
 from ai.memory.conversation_summarizer import ConversationSummarizer
@@ -204,13 +204,17 @@ class ALICE:
     def __init__(
         self,
         voice_enabled: bool = False,
-        llm_model: str = "llama3.1:8b",
+        llm_model: Optional[str] = None,
         user_name: str = "User",
         debug: bool = False,
         privacy_mode: bool = False,
         llm_policy: str = "default",
         runtime_mode: str | None = None,
+        llm_host: Optional[str] = None,
     ):
+        # llm_model and llm_host default to ALICE_MODEL and ALICE_OLLAMA_HOST
+        # (see ai.core.llm_engine.configured_model / configured_host).
+        llm_model = configured_model(llm_model)
         self.runtime_mode = resolve_runtime_mode(runtime_mode)
         self.runtime_mode_config = RuntimeModeConfig.for_mode(self.runtime_mode)
         self.voice_enabled = voice_enabled
@@ -673,7 +677,7 @@ class ALICE:
 
             # 4. LLM Engine
             logger.info("🧠 Loading LLM engine...")
-            llm_config = LLMConfig(model=llm_model)
+            llm_config = LLMConfig(model=llm_model, base_url=llm_host)
             self.llm = LocalLLMEngine(llm_config)
 
             # 4.0. Foundation Systems Integration
@@ -8697,7 +8701,7 @@ def main():
     parser = argparse.ArgumentParser(description="A.L.I.C.E - Advanced AI System")
     parser.add_argument("--voice", action="store_true", help="Enable voice interaction")
     parser.add_argument("--voice-only", action="store_true", help="Run in voice-only mode")
-    parser.add_argument("--model", default="llama3", help="LLM model to use")
+    parser.add_argument("--model", default=None, help="Ollama model (default: $ALICE_MODEL, else llama3.1:8b)")
     parser.add_argument("--name", default="User", help="Your name")
 
     args = parser.parse_args()
