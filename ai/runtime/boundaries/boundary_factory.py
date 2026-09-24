@@ -2743,57 +2743,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         operator_state = dict((req.decision.metadata or {}).get("operator_state") or {})
         greeting_turn = decision_intent.endswith("greeting") or decision_intent == "greeting"
 
-        def _build_grounded_greeting() -> ResponseOutput:
-            session_state = dict(getattr(alice, "_greeting_session_state", {}) or {})
-            user_name = str(getattr(alice, "user_name", "") or "")
-            greeting = render_grounded_greeting(
-                user_name=user_name,
-                operator_state=operator_state,
-                session_state=session_state,
-                user_input=req.user_input,
-                llm_generate=(
-                    (
-                        lambda prompt=None, **_kwargs: str(
-                            alice.llm.chat(str(prompt or ""), intent="greeting", use_history=False) or ""
-                        )
-                    )
-                    if getattr(alice, "llm", None)
-                    else None
-                ),
-            )
-            setattr(alice, "_greeting_session_state", dict(greeting.session_state))
-            return ResponseOutput(
-                text=greeting.text,
-                confidence=0.92,
-                metadata={
-                    "type": "greeting_grounded",
-                    "greeting_memory_policy": "active_state_only",
-                    "broad_memory_suppressed": True,
-                    "active_objective_used": bool(greeting.active_objective_used),
-                    "greeting_style": str(greeting.greeting_style),
-                    "suppressed_project_menu": bool(greeting.suppressed_project_menu),
-                    "repeated_greeting": bool(greeting.repeated_greeting),
-                    "generated_by": str(greeting.generated_by),
-                    "warmth_level": str(greeting.warmth_level),
-                    "companion_tone": bool(greeting.companion_tone),
-                    "assistant_like_prompt_suppressed": bool(greeting.assistant_like_prompt_suppressed),
-                    "validation_passed": bool(greeting.validation_passed),
-                    "validation_reasons": list(greeting.validation_reasons),
-                    "greeting_reason": str(greeting.reason),
-                    "continuity_guard_applied": bool(greeting.continuity_guard_applied),
-                    "continuity_claims": dict(greeting.continuity_claims or {}),
-                    "llm_candidate_rejected": bool(greeting.llm_candidate_rejected),
-                },
-            )
-
         # An outstanding permission request owns the next turn: a bare "yes" means
         # that action and nothing else.
         settled = _resolve_pending_action(alice, req, str((req.metadata or {}).get("user_id") or "default"))
         if settled is not None:
             return settled
-
-        if greeting_turn:
-            return _build_grounded_greeting()
 
         if req.decision.decision_band == "refuse" or req.decision.route == "refuse":
             refusal_text = _surface_text(

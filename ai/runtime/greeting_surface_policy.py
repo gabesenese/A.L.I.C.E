@@ -274,24 +274,13 @@ def _has_continuation_cue(text: str) -> bool:
     return any(cue in text for cue in cues)
 
 
-_FALLBACK_POOL = [
-    "Hey {name}. What's the move?",
-    "Alright — what are we building or breaking?",
-    "Hey. Give me the target.",
-    "Yo {name}. What are we tackling?",
-    "Hey. What's on deck?",
-    "Alright {name}. What are we doing?",
-]
-
-
 def _fallback_greeting(*, user_name: str, recent_greeting_texts: list[str]) -> str:
-    fname = _first_name(user_name) or "Gabriel"
-    recent_norms = {_normalize_greeting_text(t) for t in recent_greeting_texts if t}
-    for candidate in _FALLBACK_POOL:
-        rendered = candidate.replace("{name}", fname)
-        if _normalize_greeting_text(rendered) not in recent_norms:
-            return rendered
-    return f"Hey {fname}. What's the move?"
+    # One flat line when the model is unavailable. A six-line rotation made the
+    # degraded path look like variety, and the same lines were fed to the
+    # model as examples, so its greetings came out identical to the fallback.
+    _ = recent_greeting_texts
+    fname = _first_name(user_name)
+    return f"Hey {fname}." if fname else "Hey."
 
 
 def _try_constrained_llm_greeting(
@@ -327,7 +316,6 @@ def _try_constrained_llm_greeting(
             "Alice is a direct, dry, invested companion — not a warm assistant. She has presence and personality.\n"
             "Aim for 2 sentences — greet him and pull him forward. Do not minimize to one question fragment.\n"
             "The reply must feel like you actually showed up with something to say — not vague dominance filler.\n"
-            "Good examples: 'Hey Gabriel. What's the move?' / 'Alright — what are we building or breaking?' / 'Hey. Give me the target.' / 'Yo Gabriel. What are we tackling?'\n"
             "Bad examples (reject these): 'You're up.' / 'Go on.' / 'What's stuck?' / 'What's up?' — dead air or presumptuous.\n"
             "You may ask ONE short direct question. It must NOT be 'How can I help?', 'What can I do?', 'What do you need?', or any helpdesk phrasing.\n"
             "Do not assume the user has a problem, is stuck, seems off, or has something weighing on them.\n"

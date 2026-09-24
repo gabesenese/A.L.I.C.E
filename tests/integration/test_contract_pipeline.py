@@ -1569,3 +1569,31 @@ def test_repeated_tool_failure_never_shows_class_names_or_error_codes():
         assert "unknown_location" not in reply
         assert "Weather data unavailable" not in reply
     get_retry_memory().clear("default")
+
+
+class _GreetingNlp(_FakeNlp):
+    def process(self, text):
+        if str(text).strip().lower() in {"hey", "hi"}:
+            return _NlpResult(intent="greeting", intent_confidence=0.9, keywords=[])
+        return super().process(text)
+
+
+class _HistoryLlm:
+    def __init__(self):
+        self.calls = []
+
+    def chat(self, user_input, use_history=True, **kwargs):
+        self.calls.append((user_input, use_history))
+        return "Hey Gabriel. Still on the router?"
+
+
+def test_mid_conversation_greeting_is_answered_by_the_model_with_history():
+    alice = _FakeAlice()
+    alice.nlp = _GreetingNlp()
+    alice.llm = _HistoryLlm()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="hey", user_id="u1", turn_number=20)
+
+    assert result.response_text == "Hey Gabriel. Still on the router?"
+    assert ("hey", True) in alice.llm.calls
