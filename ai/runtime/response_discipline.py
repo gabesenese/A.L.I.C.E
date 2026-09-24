@@ -9,7 +9,7 @@ removes that scaffolding and leaves the substance.
 from __future__ import annotations
 
 import re
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 DEFAULT_MAX_SENTENCES = 6
 
@@ -18,13 +18,16 @@ _FILLER_OPENINGS = (
     r"i love your enthusiasm",
     r"that'?s? (?:a )?(?:great|excellent|good|interesting|fascinating) (?:question|point|idea)",
     r"what (?:a|an) (?:great|excellent|interesting|fascinating) (?:question|point|idea)",
+    r"(?:great|excellent|good|interesting|fascinating) question",
     r"i'?m (?:really |so )?(?:glad|excited|happy) (?:you|to)",
     r"(?:but )?let'?s dive (?:deeper|right in|into)",
     r"let'?s (?:unpack|explore) (?:this|that)",
     r"i'?d be happy to",
     r"thanks for (?:sharing|asking)",
-    r"it'?s worth noting that",
 )
+
+# Throat-clearing that leads straight into the point, so only the words go.
+_LEAD_INS = (r"it'?s worth noting that",)
 
 # Standalone interjections, only stripped when they are the whole opening sentence.
 _FILLER_INTERJECTIONS = (
@@ -54,13 +57,18 @@ _OPENING_RE = re.compile(
     r"^\W*(?:"
     + r"(?:"
     + "|".join(_FILLER_OPENINGS)
-    + r")\b[^.!?]*[.!?]"
+    + r")\b(?P<tail>[^.!?]*)[.!?]"
     + r"|(?:"
     + "|".join(_FILLER_INTERJECTIONS)
     + r")\s*[.!,]"
+    + r"|(?:"
+    + "|".join(_LEAD_INS)
+    + r")\b"
     + r")\s*",
     re.IGNORECASE,
 )
+# Where a courtesy ends and the sentence carrying the point begins.
+_CLAUSE_BREAK_RE = re.compile(r"[,;:\u2013\u2014]|\s-\s")
 _CLOSING_RE = re.compile(r"^\W*(?:" + "|".join(_FILLER_CLOSINGS) + r")\b", re.IGNORECASE)
 
 
@@ -158,11 +166,30 @@ def split_sentences(text: str) -> List[str]:
     return [content[start:end].strip() for start, end in _sentence_spans(content)]
 
 
+def _capitalised(text: str) -> str:
+    first = text.split(" ", 1)[0]
+    if first.isalpha() and first.islower():
+        return text[:1].upper() + text[1:]
+    return text
+
+
+def _drop_opening(match: re.Match) -> str:
+    # "That's a good point, but the cache still needs a lock." carries its point
+    # after the courtesy, and dropping the whole sentence dropped the point: the
+    # stripper turned "It's worth noting that the cache is per-process." into
+    # nothing, and "Thanks for asking, it was the lock all along." into nothing.
+    tail = match.group("tail") or ""
+    brk = _CLAUSE_BREAK_RE.search(tail)
+    if brk and re.search(r"\w", tail[brk.end() :]):
+        return tail[brk.end() :].strip() + match.group(0).rstrip()[-1] + " "
+    return ""
+
+
 def strip_filler_opening(text: str) -> str:
-    """Drop a leading compliment or throat-clearing sentence, but never everything."""
+    """Drop a leading compliment or throat-clearing, but never the point, and never everything."""
     cleaned = str(text or "").strip()
     for _ in range(2):
-        candidate = _OPENING_RE.sub("", cleaned, count=1).strip()
+        candidate = _capitalised(_OPENING_RE.sub(_drop_opening, cleaned, count=1).strip())
         if not candidate or candidate == cleaned:
             break
         cleaned = candidate
@@ -243,13 +270,32 @@ def guard_unverified_execution_claims(text: str, ran_command: bool = False, user
     return text
 
 
-def apply_response_discipline(text: str, max_sentences: int = DEFAULT_MAX_SENTENCES) -> str:
-    """Remove padding and cap length at a sentence boundary, never mid sentence."""
+# A request for depth. The cap is for rambling, and an explanation someone asked
+# for is not rambling: at five sentences "walk me through the memory layer" lost
+# its last steps, which is usually where the point is.
+_DEPTH_REQUEST_RE = re.compile(
+    r"\b(?:explain|elaborate|in (?:more )?detail|in depth|walk me through|step by step|tell me more"
+    r"|go deeper|break (?:it|this|that) down|the long version|how (?:does|do) .+ work)\b",
+    re.IGNORECASE,
+)
+
+
+def asks_for_depth(user_input: str) -> bool:
+    """Whether the user asked for an explanation rather than an answer."""
+    return bool(_DEPTH_REQUEST_RE.search(str(user_input or "")))
+
+
+def apply_response_discipline(text: str, max_sentences: Optional[int] = DEFAULT_MAX_SENTENCES) -> str:
+    """Remove padding and cap length at a sentence boundary, never mid sentence.
+
+    ``max_sentences=None`` removes the padding and leaves the length alone.
+    """
     original = str(text or "").strip()
     if not original:
         return ""
     cleaned = strip_speaker_label(original)
     cleaned = strip_filler_opening(cleaned)
     cleaned = strip_filler_closing(cleaned)
-    cleaned = limit_sentences(cleaned, max_sentences=max_sentences)
+    if max_sentences is not None:
+        cleaned = limit_sentences(cleaned, max_sentences=max_sentences)
     return cleaned.strip() or original

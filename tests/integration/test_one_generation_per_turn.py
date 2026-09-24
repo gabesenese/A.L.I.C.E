@@ -139,3 +139,24 @@ def test_i_dont_know_stands(model):
 
     assert len(model.sent) == 1
     assert result.response_text == reply
+
+
+EXPLANATION = " ".join(f"Step {n} hands its result to the next one." for n in range(1, 8))
+
+
+def test_an_explanation_he_asked_for_is_not_cut(model):
+    """The cap is for rambling. Asked to walk through something, five sentences in
+    it dropped the last steps, which is usually where the point is."""
+    model.replies.append(EXPLANATION)
+
+    result = _ask(model.engine, "walk me through how a turn gets answered")
+
+    assert result.response_text == EXPLANATION
+
+
+def test_an_ordinary_answer_is_still_capped(model):
+    model.replies.append(EXPLANATION)
+
+    result = _ask(model.engine, QUESTION)
+
+    assert result.response_text.count("Step") == 5

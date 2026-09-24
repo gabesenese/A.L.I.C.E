@@ -48,6 +48,7 @@ from ai.runtime.anti_overclarification_policy import (
 )
 from ai.runtime.response_discipline import (
     apply_response_discipline,
+    asks_for_depth,
     guard_unverified_execution_claims,
 )
 from ai.runtime.local_action_executor import LocalActionExecutor
@@ -3577,7 +3578,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 # standing in *for* an answer — is caught above by
                 # _is_question_only, which regenerates the turn instead.
 
-                llm_text = apply_response_discipline(llm_text, max_sentences=5 if _is_discussion else 4)
+                # An explanation he asked for is not rambling, and the cap is for rambling.
+                if asks_for_depth(str(req.user_input or "")):
+                    _sentence_cap = None
+                else:
+                    _sentence_cap = 5 if _is_discussion else 4
+                llm_text = apply_response_discipline(llm_text, max_sentences=_sentence_cap)
                 # Reaching this path means no command was executed this turn, so any
                 # claim about test or build results would be invented.
                 llm_text = guard_unverified_execution_claims(

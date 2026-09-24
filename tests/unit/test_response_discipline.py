@@ -9,6 +9,7 @@ import pytest
 
 from ai.runtime.response_discipline import (
     apply_response_discipline,
+    asks_for_depth,
     guard_unverified_execution_claims,
     limit_sentences,
     strip_ai_disclaimer,
@@ -182,3 +183,62 @@ def test_a_self_disclaimer_loses_the_clause_and_keeps_the_answer(reply, expected
 )
 def test_talking_about_language_models_is_not_a_disclaimer(reply):
     assert strip_ai_disclaimer(reply) == reply
+
+
+@pytest.mark.parametrize(
+    "request_text",
+    [
+        "explain how the memory layer works",
+        "can you elaborate on that?",
+        "walk me through the routing",
+        "tell me more about the tool loop",
+        "how does the continuity guard work?",
+        "how do embeddings work",
+        "go through it step by step",
+        "describe it in more detail",
+    ],
+)
+def test_a_request_for_depth_is_recognised(request_text):
+    assert asks_for_depth(request_text)
+
+
+@pytest.mark.parametrize(
+    "request_text",
+    ["should I rewrite it in rust?", "what's the weather?", "that explained it, thanks", "how does it look?"],
+)
+def test_an_ordinary_question_is_not_a_request_for_depth(request_text):
+    assert not asks_for_depth(request_text)
+
+
+def test_without_a_cap_only_the_padding_goes():
+    reply = "Great question! " + " ".join(f"Step {n} does its part." for n in range(1, 9))
+    assert apply_response_discipline(reply, max_sentences=None) == reply[len("Great question! ") :]
+
+
+@pytest.mark.parametrize(
+    "reply, expected",
+    [
+        (
+            "It's worth noting that the cache is per-process. So two workers diverge.",
+            "The cache is per-process. So two workers diverge.",
+        ),
+        (
+            "Thanks for asking, it was the lock all along. Swap it for an RLock.",
+            "It was the lock all along. Swap it for an RLock.",
+        ),
+        (
+            "That's a good point, but the cache still needs a lock. Add one around the writer.",
+            "But the cache still needs a lock. Add one around the writer.",
+        ),
+        (
+            "I'd be happy to walk through it, the loop has three stages. First it routes.",
+            "The loop has three stages. First it routes.",
+        ),
+        ("Absolutely, the cache is per-process.", "The cache is per-process."),
+        ("Great question! The loop has three stages.", "The loop has three stages."),
+    ],
+)
+def test_the_courtesy_goes_and_the_point_it_led_into_stays(reply, expected):
+    """The whole first sentence used to go, including everything after the
+    courtesy, which is where the answer was."""
+    assert strip_filler_opening(reply) == expected
