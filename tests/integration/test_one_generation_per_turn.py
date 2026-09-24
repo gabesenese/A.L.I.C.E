@@ -96,3 +96,33 @@ def test_a_code_turn_keeps_the_loops_own_prompt(model):
     assert model.sent[0]["messages"][0]["content"] == SYSTEM_PROMPT
     # Code turns have their own handling after the loop, so nothing is handed on.
     assert turn == boundary_factory._LoopTurn()
+
+
+@pytest.mark.parametrize(
+    "question, reply",
+    [
+        ("thanks, that fixed it", "Good."),
+        ("you're the best", "I'll take it."),
+        ("is sqlite fast enough for a notes app?", "Yes."),
+        ("should I rewrite the memory layer in rust?", "No."),
+    ],
+)
+def test_a_short_complete_answer_is_not_sent_back(model, question, reply):
+    """The persona asks for exactly these: the verdict first, stop at the last
+    useful word. Anything under four words used to be sent back for a "take" in
+    one to three sentences, which is how "Good." turned into a paragraph."""
+    model.replies.append(reply)
+
+    result = _ask(model.engine, question)
+
+    assert len(model.sent) == 1
+    assert result.response_text == reply
+
+
+def test_a_reply_with_nothing_in_it_still_gets_a_second_pass(model):
+    model.replies.extend(["...", REPLY])
+
+    result = _ask(model.engine)
+
+    assert len(model.sent) == 2
+    assert result.response_text == REPLY

@@ -3503,8 +3503,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 # A short answer is not a defect. Retrying on brevity taught her to pad:
                 # any reply under 50 words was forced into a 3-4 sentence "take", which is
                 # how a one word confirmation turned into an essay. Only a non-answer,
-                # meaning an empty or near-empty reply, is worth a second pass.
-                _is_too_short = len(llm_text.split()) < 4
+                # meaning a reply with no words in it, is worth a second pass. The
+                # old floor of four words sent back "No." and "Good." - the exact
+                # answers the persona asks for.
+                _is_too_short = not re.search(r"\w", llm_text)
                 # Short follow-ups ("why?", "how so?", "what do you mean") don't need
                 # a forced 3-4 sentence take — a direct 1-2 sentence reply is fine.
                 _user_words = str(req.user_input or "").strip().lower().split()
