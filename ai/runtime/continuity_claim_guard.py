@@ -167,6 +167,23 @@ _CLAIM_PATTERNS = (
 )
 _CLAIM_RE = re.compile("|".join(_CLAIM_PATTERNS), re.IGNORECASE)
 
+# A claim phrase inside a condition or a hypothetical asserts nothing about the
+# user. "If you're still stuck, send me the trace" is advice, and "what would make
+# yours the one you keep opening?" asks about an app that does not exist yet; both
+# were deleted as invented recall. Only the clause the phrase sits in counts, so
+# "If it builds, you're still on the old branch" is still a claim.
+_HYPOTHETICAL_RE = re.compile(r"\b(?:if|unless|whether|in case|would|could|might)\b", re.IGNORECASE)
+_CLAUSE_BREAK_RE = re.compile(r"[,;:\u2013\u2014]|\s-\s")
+
+
+def _asserts_continuity(sentence: str) -> bool:
+    for match in _CLAIM_RE.finditer(sentence):
+        clause = _CLAUSE_BREAK_RE.split(sentence[: match.start()])[-1]
+        if not _HYPOTHETICAL_RE.search(clause):
+            return True
+    return False
+
+
 # Words about habit and time claim knowledge of the user's routine only when the
 # sentence is about the user. "You're up later than usual" asserts a routine nobody
 # told her; "that build is taking longer than usual" is about the build, and deleting
@@ -479,7 +496,7 @@ def assess_continuity_claims(
                 rejection_reasons[claim] = ["ungrounded_proper_noun"]
                 continue
 
-        if _CLAIM_RE.search(sentence) or (_HABIT_RE.search(sentence) and _SECOND_PERSON_RE.search(sentence)):
+        if _asserts_continuity(sentence) or (_HABIT_RE.search(sentence) and _SECOND_PERSON_RE.search(sentence)):
             claim = sentence.strip()
             detected.append(claim)
             claim_tokens = _claim_topic_tokens(claim)

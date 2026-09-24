@@ -238,3 +238,26 @@ def test_advice_naming_a_tool_is_not_an_invented_memory(text):
     result = assess(text)
 
     assert result.text == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Useful but crowded - there are dozens. What would make yours the one you keep opening?",
+        "If you're still stuck, send me the trace.",
+        "If you've been running it in a venv, activate it first.",
+        "Could you keep the old index around until the new one is built?",
+        "Restart the daemon if you keep hitting the limit.",
+    ],
+)
+def test_a_condition_or_a_hypothetical_asserts_nothing_about_the_user(text):
+    """These were deleted as invented recall. A phrase like "you keep" inside an
+    if or a would is advice or a question, not a claim about what he has done."""
+    result = assess(text)
+    assert result.unsupported_continuity_claim is False
+    assert result.text == text
+
+
+def test_the_same_phrase_outside_the_condition_is_still_a_claim():
+    result = assess("If it builds, you're still on the old branch.")
+    assert result.unsupported_continuity_claim is True
