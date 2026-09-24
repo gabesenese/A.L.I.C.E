@@ -554,6 +554,28 @@ def _tool_facts_block(tool_payload: Dict[str, Any], *, limit: int = 6000) -> str
     return text if len(text) <= limit else text[:limit] + " ...(truncated)"
 
 
+_TURN_ROW = re.compile(r"^(?:user=|User said: )(.*?)\n(?:assistant=|Alice replied: )(.*)$", re.DOTALL)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def _first_sentence(text: str, limit: int) -> str:
+    # Split at a sentence end followed by space, so "app.py" and "3.5" survive.
+    sentence = _SENTENCE_END.split(" ".join(str(text or "").split()), maxsplit=1)[0]
+    if len(sentence) <= limit:
+        return sentence
+    return sentence[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def _memory_line(content: str) -> str:
+    """One recalled memory as a line the model can read as something that happened."""
+    turn = _TURN_ROW.match(str(content or "").strip())
+    if turn is None:
+        return _first_sentence(content, 160)
+    said = _first_sentence(turn.group(1), 120)
+    replied = _first_sentence(turn.group(2), 100)
+    return f'They said "{said}"; you answered "{replied}"' if replied else f'They said "{said}"'
+
+
 def _numbers_grounded(reply: str, *sources: str) -> bool:
     """Every number in the reply appears in what the tool returned (rounding allowed).
 
@@ -1309,10 +1331,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             if not content or content in _seen:
                 continue
             _seen.add(content)
-            # Trim long memories to first sentence
-            first_sentence = content.split(".")[0].strip()
-            if first_sentence and len(first_sentence) > 10:
-                mem_lines.append(f"- {first_sentence[:120]}")
+            line = _memory_line(content)
+            if len(line) > 10:
+                mem_lines.append(f"- {line}")
             if len(mem_lines) >= 3:
                 break
         if mem_lines:

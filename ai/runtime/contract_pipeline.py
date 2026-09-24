@@ -1275,7 +1275,7 @@ class ContractPipeline:
             )
 
         memory_payload = {
-            "content": f"user={user_input}\nassistant={response_text}",
+            "content": f"User said: {user_input}\nAlice replied: {response_text}",
             "intent": decision.intent,
             "route": decision.route,
             "confidence": decision.confidence,
