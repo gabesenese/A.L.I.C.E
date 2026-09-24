@@ -968,11 +968,16 @@ class ContractPipeline:
             )
         )
 
+        # "I can't reach my language model" passes verification, so an outage used
+        # to be recorded as a run of successful turns, and routing confidence learns
+        # from that record. A turn nothing answered is not a success.
+        _answered = str((respond_metadata or {}).get("type") or "") != "llm_unavailable"
+
         # Live eval record: feed turn outcome into ConfidenceFusion success-rate data
         try:
             from ai.learning.failure_eval_converter import write_turn_eval
 
-            _turn_success = bool(turn_execution_outcome.verification_passed)
+            _turn_success = bool(turn_execution_outcome.verification_passed) and _answered
             _last_veto = ""
             for _s in reversed(stages):
                 if _s.get("status") in ("failed", "skipped") and _s.get("name") in (
@@ -1045,6 +1050,7 @@ class ContractPipeline:
             follow_up_question=follow_up_question,
             tool_result=tool_result,
             action_discipline=action_discipline,
+            answered=_answered,
         )
         local_exec_payload = dict(((tool_result.diagnostics or {}).get("local_execution") if tool_result else {}) or {})
         operator_state_payload = dict((decision.metadata or {}).get("operator_state") or {})

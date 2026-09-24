@@ -569,6 +569,7 @@ class CompanionRuntimeLoop:
         follow_up_question: str,
         tool_result: ToolResult | None,
         action_discipline: Dict[str, Any],
+        answered: bool = True,
     ) -> Dict[str, Any]:
         companion_state.last_intent = str(route_decision.intent or "")
         companion_state.last_route = str(route_decision.route or "")
@@ -584,13 +585,16 @@ class CompanionRuntimeLoop:
         self._update_behavioral_profile(user_input, response_text, str(route_decision.intent or ""))
 
         # Layer 3 — collect turn pair for future fine-tuning
-        quality = "verified" if (verification and verification.accepted) else "unverified"
+        # A reply saying the model is unreachable is accepted by the verifier, but
+        # it answered nothing: not a verified pair to train on, not a success.
+        verified = bool(verification and verification.accepted) and answered
+        quality = "verified" if verified else "unverified"
         self._collect_turn_pair(user_input, response_text, quality=quality)
         self._log_turn_evaluation(
             user_input=user_input,
             response_text=response_text,
             intent=str(route_decision.intent or "unknown"),
-            verified=bool(verification and verification.accepted),
+            verified=verified,
         )
 
         if tool_result is not None:
