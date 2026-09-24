@@ -1495,3 +1495,47 @@ def test_analyze_missing_file_includes_close_matches_and_workspace_context():
     assert local_execution.get("success") is False
     assert local_execution.get("error") == "target_not_found"
     assert isinstance(local_execution.get("workspace_file_count"), int)
+
+
+def _raise_unavailable(message):
+    import requests
+
+    from ai.core.llm_engine import LLMUnavailableError
+
+    try:
+        raise requests.exceptions.ConnectionError("connection refused")
+    except requests.exceptions.ConnectionError as exc:
+        raise LLMUnavailableError(message) from exc
+
+
+class _DownLlm:
+    def __init__(self, message="Service temporarily unavailable - Ollama not running"):
+        self.message = message
+
+    def chat(self, *_args, **_kwargs):
+        _raise_unavailable(self.message)
+
+
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        ("Service temporarily unavailable - Ollama not running", "Ollama is running"),
+        ("Request timeout - please try again", "didn't answer in time"),
+    ],
+)
+def test_contract_pipeline_names_the_outage_when_the_model_is_down(message, expected):
+    alice = _FakeAlice()
+    alice.llm = _DownLlm(message)
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    replies = [
+        pipeline.run_turn(
+            user_input="what do you think about the router design?", user_id="u1", turn_number=n
+        ).response_text
+        for n in (2, 3)
+    ]
+
+    for reply in replies:
+        assert expected in reply
+        assert "more specific" not in reply
+        assert "didn't follow" not in reply

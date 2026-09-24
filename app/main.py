@@ -2229,8 +2229,10 @@ class ALICE:
                 return routed
         # "I misunderstood that response path" is Alice's own vocabulary, not the
         # user's — it names an internal routing concept to someone who just
-        # asked a question and describes a failure they cannot act on.
-        return "I didn't follow that. Say it once more and I'll answer directly."
+        # asked a question and describes a failure they cannot act on. It used
+        # to add "say it once more and I'll answer directly", a promise nothing
+        # keeps: the same words take the same path to this same line.
+        return "I didn't follow that. Could you put it another way?"
 
     def _prevent_unsolicited_summary(
         self,

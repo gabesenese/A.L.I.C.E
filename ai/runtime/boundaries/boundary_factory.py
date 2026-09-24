@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List
 
+from ai.core.llm_engine import LLMUnavailableError
 from ai.core.routing.route_arbiter import RouteArbiter
 from ai.core.routing.turn_segmenter import TurnSegmenter
 from ai.contracts import (
@@ -3327,6 +3328,22 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     llm_text,
                     ran_command=False,
                     user_input=str(req.user_input or ""),
+                )
+            except LLMUnavailableError as exc:
+                # Not the user's fault, and asking them to rephrase changes
+                # nothing. Say what is down and what fixes it. This goes out
+                # unpolished: every polish and gate step needs the same model.
+                timed_out = "timeout" in str(exc).lower()
+                return ResponseOutput(
+                    text=(
+                        "My language model didn't answer in time, so I can't answer that yet. "
+                        "Give it a moment and ask again."
+                        if timed_out
+                        else "I can't reach my language model, so I can't answer that right now. "
+                        "Check that Ollama is running (`ollama serve`), then ask again."
+                    ),
+                    confidence=0.9,
+                    metadata={"type": "llm_unavailable", "error": str(exc)},
                 )
             except Exception:
                 llm_text = ""

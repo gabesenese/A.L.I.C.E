@@ -54,6 +54,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class LLMUnavailableError(Exception):
+    """The model server did not answer: it is not running, or it timed out.
+
+    A subclass of Exception so existing broad handlers keep working, but
+    distinct so the reply can say the model is down instead of blaming the
+    user's wording.
+    """
+
+
 @dataclass(frozen=True)
 class ChatMessage:
     role: str
@@ -629,10 +638,10 @@ class LocalLLMEngine:
 
         if isinstance(last_error, requests.exceptions.Timeout):
             logger.error("Request timeout after %d attempts", attempts)
-            raise Exception("Request timeout - please try again") from last_error
+            raise LLMUnavailableError("Request timeout - please try again") from last_error
         if isinstance(last_error, requests.exceptions.ConnectionError):
             logger.error("Ollama unreachable after %d attempts", attempts)
-            raise Exception("Service temporarily unavailable - Ollama not running") from last_error
+            raise LLMUnavailableError("Service temporarily unavailable - Ollama not running") from last_error
         raise Exception(str(last_error) if last_error else f"LLM {what} failed")
 
     def _build_chat_messages(
