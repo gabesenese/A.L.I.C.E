@@ -425,6 +425,39 @@ def _contract_pipeline_enabled(alice: Any) -> bool:
     return True
 
 
+def _transcript(alice: Any) -> Any:
+    history = getattr(getattr(alice, "llm", None), "conversation_history", None)
+    return history if isinstance(history, list) else None
+
+
+def _remember_turn(alice: Any, user_input: str, reply: str, recorded_before: int) -> None:
+    """Leave the turn in the transcript exactly as the user was shown it.
+
+    Only the chat path recorded its exchange. A turn answered by a plugin,
+    narrated or not, never reached the history the next turn is generated from,
+    so after "what's the weather?" the follow-up went to a model with no weather
+    in front of it, and the continuity guard, reading the same history, deleted
+    callbacks to anything said on such a turn. A path that did record keeps its
+    entry, corrected to the reply that was actually shown.
+    """
+    history = _transcript(alice)
+    text = str(reply or "").strip()
+    if history is None or not text or not str(user_input or "").strip():
+        return
+    if len(history) > recorded_before:
+        for entry in reversed(history):
+            if isinstance(entry, dict) and entry.get("role") == "assistant":
+                entry["content"] = text
+                return
+        return
+    record = getattr(getattr(alice, "llm", None), "record_exchange", None)
+    if callable(record):
+        try:
+            record(str(user_input), text)
+        except Exception as exc:
+            logger.debug("Could not record the turn: %s", exc)
+
+
 def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> str:
     """Default app turn entrypoint.
 
@@ -435,6 +468,9 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
 
     if not hasattr(alice, "structured_logger") and callable(getattr(alice, "_process_input_internal", None)):
         return sanitize_internal_process_output(alice, user_input=user_input, use_voice=use_voice)
+
+    history = _transcript(alice)
+    recorded_before = len(history) if history is not None else 0
 
     # Tool chaining — compound queries execute multiple plugins before the pipeline
     plugin_manager = getattr(alice, "plugins", None)
@@ -457,6 +493,7 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
                     plugin_manager=plugin_manager,
                 )
                 if chain_response:
+                    _remember_turn(alice, user_input, chain_response, recorded_before)
                     if use_voice and getattr(alice, "speech", None):
                         alice.speech.speak(chain_response, blocking=False)
                     return chain_response
@@ -492,6 +529,7 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
                     except Exception:
                         pass
                 response = str(result.response_text or "")
+                _remember_turn(alice, user_input, response, recorded_before)
                 if use_voice and getattr(alice, "speech", None):
                     alice.speech.speak(response, blocking=False)
                 return response
