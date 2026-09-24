@@ -1211,81 +1211,6 @@ class ALICE:
         Ollama is NEVER in control here — it is only a teacher when Alice lacks
         phrasing experience for a novel conversational pattern.
         """
-        # ── Notes ────────────────────────────────────────────────────────────
-        if response_type == "notes_count":
-            total = alice_response.get("total", 0)
-            extras = []
-            if alice_response.get("todos"):
-                extras.append(f"{alice_response['todos']} to-do")
-            if alice_response.get("ideas"):
-                extras.append(f"{alice_response['ideas']} idea")
-            if alice_response.get("meetings"):
-                extras.append(f"{alice_response['meetings']} meeting")
-            if alice_response.get("pinned"):
-                extras.append(f"{alice_response['pinned']} pinned")
-            if alice_response.get("archived"):
-                extras.append(f"{alice_response['archived']} archived")
-            detail = f" ({', '.join(extras)})" if extras else ""
-            if total == 0:
-                return "You don't have any notes yet."
-            return f"You have {total} note{'s' if total != 1 else ''}{detail}."
-
-        if response_type == "notes_listing":
-            notes = alice_response.get("notes", [])
-            count = alice_response.get("note_count", len(notes))
-            if not notes:
-                return "You don't have any notes yet."
-            titles = [n.get("title", "Untitled") if isinstance(n, dict) else str(n) for n in notes[:10]]
-            has_more = alice_response.get("has_more", False)
-            lines = [f"**You have {count} note{'s' if count != 1 else ''}:**", ""]
-            for i, t in enumerate(titles, 1):
-                lines.append(f"{i}. {t}")
-            if has_more:
-                lines.append(f"\n*…and {count - len(titles)} more.*")
-            return "\n".join(lines)
-
-        if response_type == "note_content":
-            title = alice_response.get("title", "that note")
-            content_body = alice_response.get("content", "")
-            tags = alice_response.get("tags", [])
-            header = f"## {title}\n" if title else ""
-            tag_line = f"\n---\n*Tags: {', '.join(tags)}*" if tags else ""
-            # Don't repeat the title as body — if a note's content was never
-            # filled in and equals its title, show a polite empty-note message.
-            body = content_body if content_body and content_body.strip() != title.strip() else ""
-            if not body:
-                return f"{header.strip()}\n\n*(This note has no content yet.)*".strip()
-            return f"{header}\n{body}{tag_line}".strip()
-
-        if response_type == "note_summary":
-            title = alice_response.get("title", "that note")
-            summary = alice_response.get("summary", {})
-            if isinstance(summary, dict):
-                lines = [f"## Summary: {title}", ""]
-                if summary.get("word_count"):
-                    lines.append(f"- **{summary['word_count']} words**")
-                if summary.get("key_points"):
-                    lines.append("\n**Key points:**")
-                    for pt in summary["key_points"][:5]:
-                        lines.append(f"- {pt}")
-                return "\n".join(lines) if len(lines) > 2 else f"Summary of **{title}** — no structured data available."
-            return f"**{title}:** {summary}"
-
-        if response_type == "operation_success":
-            op = str(alice_response.get("operation") or "operation").replace("_", " ").strip()
-            details = alice_response.get("details", {}) if isinstance(alice_response.get("details", {}), dict) else {}
-            subject = str(details.get("note_title") or details.get("title") or details.get("name") or "").strip()
-            if subject:
-                return f"Done: {op} for '{subject}'."
-            return f"Done: {op}."
-
-        if response_type == "operation_failure":
-            op = str(alice_response.get("operation") or "operation").replace("_", " ").strip()
-            err = str(alice_response.get("error") or "").strip()
-            if err:
-                return f"I couldn't complete {op}: {err}."
-            return f"I couldn't complete {op}."
-
         if response_type == "knowledge_answer":
             answer = str(alice_response.get("answer") or alice_response.get("content") or "").strip()
             if answer:
@@ -1299,14 +1224,6 @@ class ALICE:
             if question:
                 return f"I need one concrete fact target to answer: {question}"
             return "I need a specific fact-focused question to answer directly."
-
-        if response_type == "operation_status":
-            status = str(alice_response.get("status") or "in progress").strip().lower()
-            detail = str(alice_response.get("detail") or "").strip()
-            msg = f"Status: {status}."
-            if detail:
-                msg += f" {detail}"
-            return msg
 
         if response_type == "location_report":
             location_known = bool(alice_response.get("location_known"))
@@ -1468,123 +1385,6 @@ class ALICE:
                 return f"Bring {item_text}{scope_phrase}; {reason}{place}."
             return f"You likely do not need {item_text}{scope_phrase}; {reason}{place}."
 
-        if response_type == "weather_prediction":
-            answer = alice_response.get("answer", "").capitalize()
-            condition = _display_condition(alice_response.get("condition", ""))
-            return f"{answer}. Current condition: {condition}." if condition else f"{answer}."
-
-        if response_type == "weather_forecast":
-            from datetime import datetime as _dt, timedelta as _td
-
-            forecast = alice_response.get("forecast", [])
-            location = alice_response.get("location", "")
-            raw_input = alice_response.get("user_input", "").lower()
-
-            if not forecast:
-                return "I don't have forecast data available right now."
-
-            wants_weekend = "weekend" in raw_input
-            wants_tomorrow = "tomorrow" in raw_input
-            _days_kw = {
-                "monday": 0,
-                "tuesday": 1,
-                "wednesday": 2,
-                "thursday": 3,
-                "friday": 4,
-                "saturday": 5,
-                "sunday": 6,
-            }
-            wants_specific_day = next((d for d in _days_kw if d in raw_input), None)
-
-            loc_str = f" for {location}" if location else ""
-            today = _dt.now().date()
-
-            def _day_label(d) -> str:
-                is_today = d == today
-                is_tmr = d == today + _td(days=1)
-                return "Today" if is_today else ("Tomorrow" if is_tmr else d.strftime("%A"))
-
-            def _fmt_table_row(d, day: dict) -> str:
-                label = _day_label(d)
-                high = day.get("high")
-                low = day.get("low")
-                cond = _display_condition(day.get("condition"), title_case=True)
-                temp = (
-                    f"{_format_temp(low)}° to {_format_temp(high)}°C" if (high is not None and low is not None) else "—"
-                )
-                return f"| {label} | {cond} | {temp} |"
-
-            TABLE_SEP = "| --- | --- | --- |"
-
-            # ── Specific weekday ─────────────────────────────────────────────
-            if wants_specific_day:
-                target_wd = _days_kw[wants_specific_day]
-                for day in forecast:
-                    try:
-                        d = _dt.strptime(day.get("date", ""), "%Y-%m-%d").date()
-                        if d.weekday() == target_wd:
-                            high, low = day.get("high"), day.get("low")
-                            cond = _display_condition(day.get("condition"), title_case=True)
-                            temp = (
-                                f"{_format_temp(low)}° to {_format_temp(high)}°C"
-                                if (high is not None and low is not None)
-                                else ""
-                            )
-                            return f"**{_day_label(d)}{loc_str}** {cond}{', ' + temp if temp else ''}"
-                    except Exception:
-                        pass
-
-            # ── Weekend: two-row table ───────────────────────────────────────
-            if wants_weekend:
-                weekend_days = []
-                for day in forecast:
-                    try:
-                        d = _dt.strptime(day.get("date", ""), "%Y-%m-%d").date()
-                        if d.weekday() in (5, 6):
-                            weekend_days.append((d, day))
-                    except Exception:
-                        pass
-                if weekend_days:
-                    lines = [
-                        f"**Weekend forecast{loc_str}**",
-                        "",
-                        "| Day | Condition | Temp |",
-                        TABLE_SEP,
-                    ]
-                    for d, day in weekend_days:
-                        lines.append(_fmt_table_row(d, day))
-                    return "\n".join(lines)
-
-            # ── Tomorrow: single bold line ───────────────────────────────────
-            if wants_tomorrow:
-                tomorrow_str = (today + _td(days=1)).strftime("%Y-%m-%d")
-                for day in forecast:
-                    if day.get("date") == tomorrow_str:
-                        d = _dt.strptime(tomorrow_str, "%Y-%m-%d").date()
-                        high, low = day.get("high"), day.get("low")
-                        cond = _display_condition(day.get("condition"), title_case=True)
-                        temp = (
-                            f"{_format_temp(low)}° to {_format_temp(high)}°C"
-                            if (high is not None and low is not None)
-                            else ""
-                        )
-                        return f"**Tomorrow{loc_str}** {cond}{', ' + temp if temp else ''}"
-
-            # ── Full 7-day table ─────────────────────────────────────────────
-            lines = [
-                f"**7-day forecast{loc_str}**",
-                "",
-                "| Day | Condition | Temp |",
-                TABLE_SEP,
-            ]
-            for day in forecast[:7]:
-                try:
-                    d = _dt.strptime(day.get("date", ""), "%Y-%m-%d").date()
-                    lines.append(_fmt_table_row(d, day))
-                except Exception:
-                    pass
-            return "\n".join(lines) if len(lines) > 4 else f"Forecast{loc_str} available but couldn't be formatted."
-
         # ── Capability ───────────────────────────────────────────────────────
         if response_type == "capability_answer":
             can_do = alice_response.get("can_do", False)
@@ -1596,25 +1396,6 @@ class ALICE:
             if ops:
                 base += f" Available operations: {', '.join(ops[:5])}."
             return base
-
-        # ── Self-analysis / code ─────────────────────────────────────────────
-        if response_type == "self_analysis":
-            total_files = alice_response.get("total_files", 0)
-            analyzed = alice_response.get("analyzed_files", [])
-            points = alice_response.get("architecture_points", [])
-            lines = [f"I have {total_files} Python files in my codebase."]
-            for f in analyzed[:5]:
-                lines.append(f"  • {f['path']}: {f.get('lines', 0)} lines")
-            for p in points[:5]:
-                lines.append(f"  • {p}")
-            return "\n".join(lines)
-
-        if response_type == "code_explanation":
-            name = alice_response.get("file_name", "file")
-            lines = alice_response.get("lines", 0)
-            module_type = alice_response.get("module_type", "code")
-            preview = alice_response.get("content_preview", "")[:200]
-            return f"{name} is a {module_type} file with {lines} lines.{(' ' + preview) if preview else ''}"
 
         if response_type == "codebase_listing":
             heading = str(alice_response.get("heading") or "My codebase")
@@ -1720,15 +1501,6 @@ class ALICE:
             logger.info(f"[ALICE] Strict mode fallback for '{response_type}'")
             if response_type == "knowledge_answer":
                 return "I can answer in strict mode, but I need a more specific target question."
-            if response_type == "reasoning_result":
-                return str(alice_response.get("conclusion") or "Reasoning complete.")
-            if response_type == "operation_success":
-                op = str(alice_response.get("operation") or "operation").replace("_", " ")
-                return f"Completed: {op}."
-            if response_type == "operation_failure":
-                op = str(alice_response.get("operation") or "operation").replace("_", " ")
-                err = str(alice_response.get("error") or "").strip()
-                return f"Failed: {op}. {err}".strip()
             if response_type == "clarification_prompt":
                 if self._is_answerability_direct_question(user_input):
                     return self._answerability_gate_fallback_response(user_input)
@@ -1763,31 +1535,6 @@ class ALICE:
             else:
                 topic = intent.split(":")[0] if ":" in intent else intent
                 content_str = f"Based on what I've learned about {topic}, I can help with: {question}"
-
-        elif response_type == "reasoning_result":
-            conclusion = alice_response.get("conclusion", "")
-            content_str = f"Conclusion: {conclusion}"
-
-        elif response_type == "operation_success":
-            op = alice_response.get("operation", "operation")
-            details = alice_response.get("details", {})
-            title = (details.get("note_title") or details.get("title", "")) if isinstance(details, dict) else ""
-            title_str = f" '{title}'" if title else ""
-            user_q = alice_response.get("user_question", "")
-            content_str = (
-                f"Action completed successfully: {op.replace('_', ' ')}{title_str}. "
-                f"User asked: '{user_q}'. Confirm this briefly and naturally in one sentence."
-            )
-
-        elif response_type == "operation_failure":
-            op = alice_response.get("operation", "that")
-            error = alice_response.get("error", "")
-            user_q = alice_response.get("user_question", "")
-            error_str = f" Reason: {error}" if error and error not in ("Operation failed", "unknown") else ""
-            content_str = (
-                f"Action failed: {op.replace('_', ' ')}.{error_str} "
-                f"User asked: '{user_q}'. Explain this briefly and naturally, and offer to help in one sentence."
-            )
 
         elif response_type == "weather_advice":
             # Give Ollama the bare facts so it can phrase the advice naturally.
