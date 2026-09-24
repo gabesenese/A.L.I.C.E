@@ -25,7 +25,9 @@ def test_a_place_name_answers_what_city(text, place):
     assert place_answer(text) == place
 
 
-@pytest.mark.parametrize("text", ["thanks", "never mind", "it is raining", "why?", "is it cold"])
+@pytest.mark.parametrize(
+    "text", ["thanks", "never mind", "it is raining", "why?", "is it cold", "that's great too", "sounds good"]
+)
 def test_other_replies_are_not_a_city(text):
     assert place_answer(text) is None
 
