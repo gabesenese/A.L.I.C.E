@@ -198,7 +198,42 @@ def _may_reach_for_tools(req: Any) -> bool:
     return str(getattr(req.decision, "route", "") or "") == "llm"
 
 
+# Enough turns to resolve "that file" or "the one before", without spending the
+# context window on the whole sitting.
+_TOOL_LOOP_HISTORY_MESSAGES = 12
+
+
+def _recent_history(llm: Any) -> List[Dict[str, Any]]:
+    history = getattr(llm, "conversation_history", None)
+    if not isinstance(history, list):
+        return []
+    return [dict(turn) for turn in history[-_TOOL_LOOP_HISTORY_MESSAGES:] if isinstance(turn, dict)]
+
+
+def _record_tool_turn(alice: Any, req: Any, output: Any) -> None:
+    """Put a tool turn in the transcript, like any other exchange.
+
+    Only the plain chat path recorded turns, so after "list the files in ai/"
+    the next message's model call had no idea the listing had happened.
+    """
+    llm = getattr(alice, "llm", None)
+    text = str(getattr(output, "text", "") or "").strip()
+    if llm is None or not text or not hasattr(llm, "record_exchange"):
+        return
+    try:
+        llm.record_exchange(str(req.user_input or ""), text)
+    except Exception as exc:
+        _logger.debug("Could not record tool turn: %s", exc)
+
+
 def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any]) -> Any:
+    output = _run_tool_grounded_answer(alice, req, operator_state)
+    if output is not None:
+        _record_tool_turn(alice, req, output)
+    return output
+
+
+def _run_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any]) -> Any:
     """Let the model reach for a real tool before falling back to plain generation.
 
     Returns None whenever the loop is unavailable or chose not to act, so every
@@ -229,7 +264,7 @@ def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, An
                 }
             ),
         )
-        result = loop.run(str(req.user_input or ""))
+        result = loop.run(str(req.user_input or ""), history=_recent_history(llm))
     except Exception as exc:
         _logger.warning("Tool grounded answer unavailable, falling back to generation: %s", exc)
         return None

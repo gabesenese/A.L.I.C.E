@@ -1597,3 +1597,47 @@ def test_mid_conversation_greeting_is_answered_by_the_model_with_history():
 
     assert result.response_text == "Hey Gabriel. Still on the router?"
     assert ("hey", True) in alice.llm.calls
+
+
+class _ToolLlm:
+    """Asks for one workspace listing, then answers from it."""
+
+    def __init__(self):
+        self.conversation_history = [
+            {"role": "user", "content": "I'm refactoring the runtime package."},
+            {"role": "assistant", "content": "Good, it has grown."},
+        ]
+        self.tool_calls_seen = []
+
+    def chat(self, user_input, use_history=True, **kwargs):
+        return "LLM:" + user_input
+
+    def record_exchange(self, user_input, reply):
+        self.conversation_history += [
+            {"role": "user", "content": user_input},
+            {"role": "assistant", "content": reply},
+        ]
+
+    def chat_with_tools(self, messages, tools=None, **kwargs):
+        from ai.core.llm_engine import ChatResponse, ToolCall
+
+        self.tool_calls_seen.append(list(messages))
+        if len(self.tool_calls_seen) == 1:
+            return ChatResponse(
+                content="", tool_calls=[ToolCall(name="list_workspace_files", arguments={"path": "ai"})]
+            )
+        return ChatResponse(content="The ai folder holds the core, runtime and memory packages.")
+
+
+def test_tool_turns_see_the_conversation_and_are_remembered():
+    alice = _FakeAlice()
+    alice.llm = _ToolLlm()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="which files are in the ai folder?", user_id="u1", turn_number=3)
+
+    first_request = alice.llm.tool_calls_seen[0]
+    assert {"role": "user", "content": "I'm refactoring the runtime package."} in first_request
+    assert "runtime and memory packages" in result.response_text
+    assert alice.llm.conversation_history[-2] == {"role": "user", "content": "which files are in the ai folder?"}
+    assert "runtime and memory packages" in alice.llm.conversation_history[-1]["content"]

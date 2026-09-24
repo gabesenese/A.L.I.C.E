@@ -189,6 +189,7 @@ class ReactLoop:
         user_input: str,
         context: Optional[str] = None,
         tool_names: Optional[List[str]] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
     ) -> ReactResult:
         # Advertise only what this loop is actually allowed to run. The ceiling was
         # computed and then thrown away in favour of RISK_OUTWARD, so with writes
@@ -203,6 +204,12 @@ class ReactLoop:
         messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
         if context and str(context).strip():
             messages.append({"role": "system", "content": str(context).strip()})
+        # The conversation so far. Without it "open the file we just talked about"
+        # reached the model as a sentence with no antecedent.
+        for turn in list(history or []):
+            role = str((turn or {}).get("role") or "")
+            if role in {"user", "assistant"} and str(turn.get("content") or "").strip():
+                messages.append({"role": role, "content": str(turn["content"])})
         messages.append({"role": "user", "content": str(user_input or "")})
 
         result = ReactResult()
