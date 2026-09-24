@@ -26,6 +26,10 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(APP_DIR)
 sys.path.insert(0, PROJECT_ROOT)
 
+# How long shutdown waits for a classifier load that is still running. A cached
+# model finishes in a few seconds; past this, the load is waiting on the network.
+CLASSIFIER_WARM_SHUTDOWN_WAIT_SECONDS = 10.0
+
 # Import ALICE components
 from ai.core.nlp_processor import NLPProcessor
 from ai.core.llm_engine import LocalLLMEngine, LLMConfig
@@ -1070,6 +1074,20 @@ class ALICE:
             logger.info("Semantic classifier warmed.")
         except Exception as e:
             logger.debug(f"Semantic classifier warm-up skipped: {e}")
+
+    def _wait_for_classifier_warm(self, timeout: float = CLASSIFIER_WARM_SHUTDOWN_WAIT_SECONDS) -> None:
+        """Give a still-running classifier warm a bounded chance to finish.
+
+        The warm is a daemon thread that may be inside torch when shutdown is
+        called. If the interpreter exits then, the C++ runtime aborts the process
+        ("terminate called without an active exception", SIGABRT). That crashed
+        the startup-cost test whenever the load was still running at exit, and it
+        can skip the exit hooks that save session state. A load that is only
+        waiting on the network is safe to abandon, so the wait is bounded.
+        """
+        warm = getattr(self, "_classifier_warm_thread", None)
+        if warm is not None and warm.is_alive():
+            warm.join(timeout=timeout)
 
     def _run_startup_doctor(self) -> None:
         """Run profile-based startup diagnostics and persist a health summary."""
@@ -8662,6 +8680,8 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         # Stop voice if active
         if self.speech:
             self.speech.stop_listening()
+
+        self._wait_for_classifier_warm()
 
         self.running = False
         logger.info("[OK] ALICE shutdown complete")
