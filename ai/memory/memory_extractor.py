@@ -120,6 +120,28 @@ class MemoryExtractor:
                 parts.append(part)
         return parts if parts else [text]
 
+    # First-person facts about himself. With no domain keyword these were filed as
+    # "general" and dropped, so a birthday, a job, an allergy, a dog or an
+    # appointment was forgotten unless he said "remember that". The nouns are
+    # listed so that "my code is broken" and "I have a question" stay passing
+    # remarks.
+    _PERSONAL_NOUNS = (
+        r"birthday|name|age|address|phone(?:\s+number)?|email|job|work|boss|manager|doctor|dentist|therapist"
+        r"|appointment|flight|meeting|interview|exam|anniversary|wedding|car|dog|cat|pet|kids?|son|daughter"
+        r"|wife|husband|partner|girlfriend|boyfriend|mom|mum|mother|dad|father|sister|brother|family"
+        r"|favou?rite\s+\w+|password|wifi|allerg\w*|blood\s+type|size|team|school|university|major|degree"
+        r"|rent|landlord|neighbou?r|flat|apartment|house"
+    )
+    _personal_fact_pattern = re.compile(
+        r"^(?:(?:and|also|oh|btw|by the way)[,\s]+)?(?:"
+        r"my\s+(?:[\w'-]+\s+){0,2}(?:" + _PERSONAL_NOUNS + r")\s+(?:is|are|was|were|'s)\b"
+        r"|i\s+(?:have|own|got)\s+(?:a|an|two|three|\d+)\s+(?:[\w'-]+\s+)?(?:" + _PERSONAL_NOUNS + r")\b"
+        r"|i\s+(?:work|live)\s+(?:as|at|in|for|on|near)\s+\S"
+        r"|i(?:'m|\s+am)\s+(?:allergic|from|based\s+in)\b"
+        r"|i\s+was\s+born\b)",
+        re.IGNORECASE,
+    )
+
     def _is_filler(self, text: str) -> bool:
         low = str(text or "").strip().lower()
         if not low:
@@ -244,6 +266,23 @@ class MemoryExtractor:
                     ["work"] if "work" in fragment_domains and "worked late" in fragment.lower() else []
                 )
             is_action_fragment = bool(self._action_request_pattern.search(fragment))
+            if (
+                self._personal_fact_pattern.search(fragment.strip())
+                and not fragment.strip().endswith("?")
+                and not is_action_fragment
+            ):
+                candidates.append(
+                    MemoryCandidate(
+                        content=self._rewrite_content(user_name, fragment, "personal_life", "personal_fact"),
+                        domain="personal_life",
+                        kind="personal_fact",
+                        scope="long_term",
+                        confidence=0.8,
+                        source=source,
+                        should_store=True,
+                        fragment=fragment,
+                    )
+                )
             # Explicit day-to-day personal events get a dedicated personal memory candidate.
             if self._day_to_day_personal_pattern.search(fragment):
                 day_content = self._rewrite_content(user_name, fragment, "personal_life", "conversation_event")
