@@ -51,17 +51,15 @@ def _verification_fallback(
             fg = get_fallback_graph()
             steps = fg.get_steps(intent or tool, error_type)
             step_idx = rm.get_step_index(user_id, intent or tool, error_type)
-            if steps and step_idx < len(steps):
-                return steps[step_idx].message
+            if steps:
+                # A repeat failure stays on the last step instead of running off
+                # the end into a line that named the plugin class and error code.
+                return steps[min(step_idx, len(steps) - 1)].message
         except Exception:
             pass
-        if tool and error_type:
-            return (
-                f"The {tool} action ran into an issue ({error_type}). Try rephrasing or check that the target exists."
-            )
-        if tool:
-            return f"The {tool} action didn't complete successfully. Try again or rephrase what you need."
-        return "That action didn't complete successfully. Try rephrasing or providing more detail."
+        # Never put the tool or error identifiers in front of the user: they are
+        # Python class names and constants ("WeatherPlugin", "unknown_location").
+        return "That didn't work. Try again, or ask it a different way."
 
     if reason == "empty_response":
         return "I wasn't able to generate a response for that. Could you be more specific about what you need?"
@@ -122,6 +120,7 @@ class ExecutePhaseResult:
 class VerifyPhaseResult:
     proposed_response: ResponseOutput
     verification: Optional[VerifierResult]
+    intent: str = ""
 
 
 @dataclass(frozen=True)
@@ -322,7 +321,11 @@ class TurnOrchestrator:
                 )
             )
 
-        return VerifyPhaseResult(proposed_response=proposed, verification=verification)
+        return VerifyPhaseResult(
+            proposed_response=proposed,
+            verification=verification,
+            intent=str(route_phase.decision.intent or ""),
+        )
 
     def respond_phase(
         self,
@@ -337,7 +340,11 @@ class TurnOrchestrator:
             and not verification.accepted
             and not is_authoritative(proposed.metadata if proposed else None)
         ):
-            _intent_for_fallback = str(
+            # The routed intent ("weather:current") keys the fallback graph. The
+            # response metadata rarely carries one, and the tool name it fell
+            # back to ("WeatherPlugin") matched no entry, so every tool failure
+            # got the same generic line.
+            _intent_for_fallback = verify_phase.intent or str(
                 verify_phase.proposed_response.metadata.get("intent", "")
                 if verify_phase.proposed_response and verify_phase.proposed_response.metadata
                 else ""

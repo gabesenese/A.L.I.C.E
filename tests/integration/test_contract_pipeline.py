@@ -147,6 +147,15 @@ class _FakePlugins:
                 "confidence": 0.88,
             }
 
+        if "weather in atlantis" in query_text:
+            return {
+                "success": False,
+                "response": "",
+                "plugin": "WeatherPlugin",
+                "confidence": 0.2,
+                "error": "unknown_location",
+            }
+
         if "weather fail hard" in query_text:
             return {
                 "success": False,
@@ -1539,3 +1548,24 @@ def test_contract_pipeline_names_the_outage_when_the_model_is_down(message, expe
         assert expected in reply
         assert "more specific" not in reply
         assert "didn't follow" not in reply
+
+
+def test_repeated_tool_failure_never_shows_class_names_or_error_codes():
+    from ai.runtime.fallback_policy import get_retry_memory
+
+    get_retry_memory().clear("default")
+    alice = _FakeAlice()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    replies = [
+        pipeline.run_turn(user_input="what's the weather in atlantis?", user_id="u1", turn_number=n).response_text
+        for n in (2, 3, 4)
+    ]
+
+    assert replies[0] == "I couldn't find that location. Could you try a nearby city?"
+    assert replies[1] == replies[0]
+    for reply in replies:
+        assert "Plugin" not in reply
+        assert "unknown_location" not in reply
+        assert "Weather data unavailable" not in reply
+    get_retry_memory().clear("default")

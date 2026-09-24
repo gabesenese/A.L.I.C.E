@@ -1206,19 +1206,11 @@ class ContractPipeline:
 
             wm = get_world_model()
             intent_str = str(decision.intent or "")
+            # A failed fetch used to get a "(last updated ~Nm ago)" prefix or a
+            # "(Weather data unavailable ...)" tail bolted onto the failure
+            # message, which already says what went wrong: two voices, one reply.
             if tool_result and tool_result.success and intent_str.startswith("weather:"):
                 wm.record_data_fetch("weather")
-            elif intent_str.startswith("weather:") and not (tool_result and tool_result.success):
-                # Tool didn't run or failed — qualify if we have cached data with age
-                age = wm.data_age_seconds("weather")
-                if age is not None:
-                    mins = int(age / 60)
-                    if mins > 0 and response_text and "(last updated" not in response_text:
-                        response_text = f"(last updated ~{mins}m ago) {response_text}"
-                elif wm.is_data_stale("weather"):
-                    # No cached data at all and plugin failed — add a retry suggestion
-                    if response_text and "try again" not in response_text.lower():
-                        response_text += " (Weather data unavailable — try again in a moment.)"
         except Exception:
             pass
 
