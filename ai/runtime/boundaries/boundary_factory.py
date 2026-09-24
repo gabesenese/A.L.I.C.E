@@ -3082,18 +3082,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     metadata={"type": "code_request"},
                 )
 
-            fallback = _surface_text(
-                "Yes, I can analyze Alice's current codebase. I will start by listing the main files and then inspect the core runtime routing paths.",
-                user_input=req.user_input,
-                intent=req.decision.intent,
-                route="contract_code_request",
-            )
-            return ResponseOutput(
-                text=fallback,
-                confidence=0.75,
-                requires_follow_up=False,
-                metadata={"type": "code_request_fallback"},
-            )
+            # Nothing handled it locally: fall through, so the tool loop can go
+            # and look instead of a sentence promising that she will.
 
         if req.decision.intent == "freshness:current_events":
             payload = _freshness_required_payload(req.user_input)

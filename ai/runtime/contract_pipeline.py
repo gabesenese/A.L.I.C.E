@@ -936,10 +936,9 @@ class ContractPipeline:
                 action_discipline=action_discipline,
             )
 
-        if str((respond_metadata or {}).get("type") or "") in {
-            "fallback",
-            "code_request_fallback",
-        } or str((respond_metadata or {}).get("fallback") or ""):
+        if str((respond_metadata or {}).get("type") or "") == "fallback" or str(
+            (respond_metadata or {}).get("fallback") or ""
+        ):
             self._append_routing_failure(
                 trace_id=trace_id,
                 user_input=user_input,
