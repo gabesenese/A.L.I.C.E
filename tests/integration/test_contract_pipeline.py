@@ -335,11 +335,11 @@ def test_contract_pipeline_defers_current_world_summary_without_live_sources():
     assert result.metadata["route"] == "local"
     assert result.metadata["intent"] == "freshness:current_events"
     _assert_decision_band_is_consistent(result, "execute")
-    assert result.metadata["requires_follow_up"] is True
     assert result.metadata["verification"]["accepted"] is True
     response = result.response_text.lower()
     assert "live sources" in response
     assert "model memory" in response
+    assert "i can" not in response  # no offer to look it up: there is no news tool
     assert "llm:" not in response
     assert "pandemic" not in response
 

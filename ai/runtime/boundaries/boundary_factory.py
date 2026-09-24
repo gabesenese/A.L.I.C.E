@@ -3040,12 +3040,6 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         if req.decision.intent == "freshness:current_events":
             payload = _freshness_required_payload(req.user_input)
-            follow_up_question = _surface_text(
-                _formulate_freshness_guard_response(f"{req.user_input}\nrequested_focus=follow_up_slot"),
-                user_input=req.user_input,
-                intent=req.decision.intent,
-                route="contract_freshness_guard",
-            )
             text = _surface_text(
                 _formulate_freshness_guard_response(req.user_input),
                 user_input=req.user_input,
@@ -3055,13 +3049,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return ResponseOutput(
                 text=text,
                 confidence=0.99,
-                requires_follow_up=True,
-                follow_up_question=follow_up_question,
                 metadata={
                     "type": "freshness_guard",
                     "requires_live_sources": True,
                     "freshness_payload": payload,
-                    "follow_up_question": follow_up_question,
                 },
             )
 

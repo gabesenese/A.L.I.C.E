@@ -7909,9 +7909,12 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
     def _formulate_freshness_guard_response(self, user_input: str) -> str:
         payload = self._freshness_required_payload(user_input)
-        return (
-            "This needs live sources right now, and I cannot verify it from model memory alone. "
-            f"If you want, I can fetch current updates for: {payload.get('domain', 'current events')}."
+        from ai.core.response_formulator import _no_live_source_sentence
+
+        return _no_live_source_sentence(
+            str(payload.get("domain") or "current events"),
+            str(payload.get("source_requirement") or "live sources"),
+            str(payload.get("blocked_source") or "model memory"),
         )
 
     def _resolve_runtime_user_name(self) -> str:

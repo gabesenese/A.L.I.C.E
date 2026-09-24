@@ -132,6 +132,7 @@ def test_current_events_guard_detects_world_situation_without_live_sources():
     assert payload["blocked_source"] == "model memory"
 
     response = alice._formulate_freshness_guard_response("what is happening in the world right now?").lower()
+    assert "i can" not in response  # no offer to look it up: there is no news tool
     assert "live sources" in response
     assert "model memory" in response
     assert "pandemic" not in response

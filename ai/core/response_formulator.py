@@ -50,6 +50,14 @@ class UserResponse:
     message: str
 
 
+def _no_live_source_sentence(domain: str, source_requirement: str, blocked_source: str) -> str:
+    return (
+        f"I don't have {source_requirement} for {domain}: no news or web access is connected, "
+        f"and {blocked_source} would be out of date, so I won't guess. "
+        "Paste an article and I'll go through it with you."
+    )
+
+
 class ResponseFormulator:
     """
     Learns to formulate natural responses from structured data.
@@ -486,40 +494,12 @@ class ResponseFormulator:
             if isinstance(data, dict):
                 payload.update(data)
 
-        user_input = str(context.get("user_input") or "").strip()
         domain = str(payload.get("domain") or "current events").strip()
         source_requirement = str(payload.get("source_requirement") or "live sources").strip()
         blocked_source = str(payload.get("blocked_source") or "model memory").strip()
-        search_dimensions = [
-            str(item).strip() for item in list(payload.get("search_dimensions") or []) if str(item).strip()
-        ]
-        if not search_dimensions:
-            search_dimensions = ["topic", "region", "market"]
-
-        dimensions = ", ".join(search_dimensions[:-1])
-        if len(search_dimensions) > 1:
-            dimensions = f"{dimensions}, or {search_dimensions[-1]}" if dimensions else search_dimensions[-1]
-        else:
-            dimensions = search_dimensions[0]
-
-        variants = [
-            (
-                f"{domain.capitalize()} is freshness-sensitive, so I need {source_requirement} "
-                f"before making factual claims. I should not rely on {blocked_source}; give me a {dimensions} "
-                "and I can work from fresh results."
-            ),
-            (
-                f"For {domain}, I need {source_requirement} first. I will avoid {blocked_source} for this; "
-                f"send a {dimensions} to search and I can ground the answer."
-            ),
-            (
-                f"This needs {source_requirement} because {domain} changes quickly. I will not summarize it "
-                f"from {blocked_source}; narrow it by {dimensions} and I can fetch current context."
-            ),
-        ]
-        index_basis = sum(ord(ch) for ch in user_input.lower()) if user_input else len(domain)
-        seed = variants[index_basis % len(variants)]
-        return self._dynamic_phrase(seed, tone="careful and concise")
+        # There is no news or web tool. Offering to "fetch current context" once the
+        # user narrows it down promised a lookup that could never happen.
+        return _no_live_source_sentence(domain, source_requirement, blocked_source)
 
     def _load_templates(self) -> None:
         """Load response templates from storage"""
