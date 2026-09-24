@@ -103,3 +103,16 @@ def test_an_unnamed_list_with_several_candidates_is_asked_about(notes):
     _say(notes, "add call the dentist to my todo list", "notes:append")
 
     assert _say(notes, "what's on my list?") == "Which one: your todo list or your shopping list?"
+
+
+def test_every_way_of_adding_reaches_the_list(notes):
+    """Only "add ... to" reached the list code; "put coffee on the shopping list"
+    was answered with a count of the notes."""
+    _say(notes, "add milk to my shopping list", "notes:append")
+
+    added = _say(notes, "put coffee on the shopping list too", "notes:append")
+    assert added == "Added coffee to your shopping list."
+    assert _say(notes, "could you throw batteries on my shopping list", "notes:list") == (
+        "Added batteries to your shopping list."
+    )
+    assert _say(notes, "what's on my shopping list?") == "On your shopping list: milk, coffee and batteries."

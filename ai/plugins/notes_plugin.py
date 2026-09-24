@@ -2874,12 +2874,17 @@ class NotesPlugin(PluginInterface):
         }
 
     def _named_list_request(self, command: str) -> Optional[Dict[str, Any]]:
-        """Read a named list, take things off it, or clear it.
+        """Add to a named list, read it, take things off it, or clear it.
 
         Every one of these went to notes:list, which counted the notes: "what's on
         my shopping list?" was answered "You have 3 note(s)."
         """
         text = str(command or "").strip()
+        # "put coffee on the shopping list" only reached the list code through the
+        # "add ... to" patterns, so it was answered with a count of the notes.
+        adding = _LIST_ITEM_RE.search(text)
+        if adding:
+            return self._add_to_list(adding.group("items"), adding.group("name"))
         removing = _REMOVE_FROM_LIST_RE.search(text)
         clearing = None if removing else _CLEAR_LIST_RE.search(text)
         reading = None if removing or clearing else _READ_LIST_RE.search(text)
