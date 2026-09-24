@@ -672,6 +672,30 @@ def _numbers_grounded(reply: str, *sources: str) -> bool:
     return all(float(token) in known for token in _NUMBER.findall(str(reply or "")))
 
 
+_FACT_WORD_RE = re.compile(r"[a-z0-9']{3,}")
+_NOT_A_FACT_WORD = frozenset({"the", "and", "you", "your", "yours", "said", "was", "are", "is", "has", "have", "that"})
+
+
+def _fact_words(text: Any) -> set:
+    words = {w.strip("'").removesuffix("'s") for w in _FACT_WORD_RE.findall(str(text or "").lower())}
+    return {w for w in words if len(w) >= 3 and w not in _NOT_A_FACT_WORD}
+
+
+def _fact_being_corrected(alice: Any, personal_memory: Any) -> List[Dict[str, Any]]:
+    """The fact a "that's wrong" is about: one her last reply actually used.
+
+    It used to be whichever personal fact was newest, so "that's wrong" about a
+    weather answer invalidated his birthday. With no record of her last reply,
+    the newest fact is still the best guess.
+    """
+    recent = list(personal_memory.find_recent_structured_memories(top_k=10) or [])
+    previous = getattr(alice, "last_interaction", None)
+    if not isinstance(previous, dict):
+        return recent[:1]
+    said = _fact_words(previous.get("assistant_response"))
+    return [row for row in recent if _fact_words(row.get("content")) & said][:1]
+
+
 def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     """Create runtime boundaries backed by current ALICE components."""
 
@@ -2783,7 +2807,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     personal_memory.forget_recent_memory()
                     return
                 if op == "mark_recent_incorrect":
-                    recent = personal_memory.find_recent_structured_memories(top_k=1)
+                    recent = _fact_being_corrected(alice, personal_memory)
                     if recent:
                         personal_memory.mark_memory_incorrect(
                             str(recent[0].get("id") or ""),

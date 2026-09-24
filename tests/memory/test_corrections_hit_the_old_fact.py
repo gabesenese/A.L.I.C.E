@@ -94,3 +94,31 @@ def test_a_corrected_fact_stops_coming_back(setup):
         "memory:recall", "what's my sister's name?", {"topic": "sister"}, {}
     )
     assert "Ana" not in answer["response"]
+
+
+def test_a_correction_lands_on_the_fact_her_last_reply_used(setup):
+    alice, boundaries, store = setup
+    store.store_structured_memory(
+        content="my birthday is march 3rd",
+        domain="personal_life",
+        kind="personal_fact",
+        scope="long_term",
+        confidence=0.95,
+        source="explicit_request",
+    )
+    alice.last_interaction = {"user_input": "what's my sister's name?", "assistant_response": "Your sister is Ana."}
+
+    _correct(boundaries, "that's wrong")
+
+    assert _valid(store) == ["my birthday is march 3rd"]
+
+
+def test_saying_an_unrelated_answer_was_wrong_leaves_her_memory_alone(setup):
+    """Told a weather answer was wrong, she used to invalidate whatever personal
+    fact happened to be the newest."""
+    alice, boundaries, store = setup
+    alice.last_interaction = {"user_input": "weather?", "assistant_response": "12 degrees and raining in Kitchener."}
+
+    _correct(boundaries, "that's wrong")
+
+    assert _valid(store) == ["my sister's name is Ana"]
