@@ -321,8 +321,10 @@ class TurnOrchestrator:
         verification = verify_phase.verification
         proposed = verify_phase.proposed_response
 
-        if verification is not None and not verification.accepted and not is_authoritative(
-            proposed.metadata if proposed else None
+        if (
+            verification is not None
+            and not verification.accepted
+            and not is_authoritative(proposed.metadata if proposed else None)
         ):
             _intent_for_fallback = str(
                 verify_phase.proposed_response.metadata.get("intent", "")

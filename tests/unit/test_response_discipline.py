@@ -50,6 +50,7 @@ def test_real_command_output_is_left_alone():
 def test_ordinary_conversation_is_untouched(user_input, answer):
     assert guard_unverified_execution_claims(answer, ran_command=False, user_input=user_input) == answer
 
+
 ESSAY = (
     "Your enthusiasm is palpable, but let's dive deeper into this project of building a modern "
     "Jarvis-like AI. I've been paying attention to your goals and it seems like you're eager to "

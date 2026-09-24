@@ -49,8 +49,8 @@ def _damage(store: SQLiteMemoryStore, memory_id: str, **columns) -> None:
     assignments = ", ".join(f"{name} = ?" for name in columns)
     with sqlite3.connect(store.db_path) as conn:
         conn.execute(
-            f"INSERT OR REPLACE INTO memories (id, content, memory_type, timestamp) "
-            f"VALUES (?, 'user=what is the weather like today', 'episodic', '2026-08-09T16:59:27')",
+            "INSERT OR REPLACE INTO memories (id, content, memory_type, timestamp) "
+            "VALUES (?, 'user=what is the weather like today', 'episodic', '2026-08-09T16:59:27')",
             (memory_id,),
         )
         conn.execute(f"UPDATE memories SET {assignments} WHERE id = ?", (*columns.values(), memory_id))

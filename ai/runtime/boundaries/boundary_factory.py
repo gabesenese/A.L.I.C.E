@@ -99,8 +99,26 @@ def _is_workspace_turn(req: Any) -> bool:
 
 
 _REQUEST_VERBS = (
-    "run", "create", "edit", "write", "make", "add", "list", "find", "search", "show",
-    "read", "open", "check", "look", "fix", "delete", "remove", "install", "build", "test",
+    "run",
+    "create",
+    "edit",
+    "write",
+    "make",
+    "add",
+    "list",
+    "find",
+    "search",
+    "show",
+    "read",
+    "open",
+    "check",
+    "look",
+    "fix",
+    "delete",
+    "remove",
+    "install",
+    "build",
+    "test",
 )
 
 
@@ -392,14 +410,43 @@ def _resolve_pending_action(alice: Any, req: Any, user_id: str) -> Any:
 
 
 _APPROVAL_PHRASES = {
-    "yes", "y", "yeah", "yep", "yup", "ok", "okay", "sure", "do it", "go ahead",
-    "proceed", "confirm", "confirmed", "approved", "go for it", "sounds good",
-    "please do", "run it", "do that", "make it so",
+    "yes",
+    "y",
+    "yeah",
+    "yep",
+    "yup",
+    "ok",
+    "okay",
+    "sure",
+    "do it",
+    "go ahead",
+    "proceed",
+    "confirm",
+    "confirmed",
+    "approved",
+    "go for it",
+    "sounds good",
+    "please do",
+    "run it",
+    "do that",
+    "make it so",
 }
 
 _REJECTION_PHRASES = {
-    "no", "nope", "nah", "don't", "dont", "cancel", "stop", "skip it", "leave it",
-    "never mind", "nevermind", "forget it", "no thanks", "don't do that",
+    "no",
+    "nope",
+    "nah",
+    "don't",
+    "dont",
+    "cancel",
+    "stop",
+    "skip it",
+    "leave it",
+    "never mind",
+    "nevermind",
+    "forget it",
+    "no thanks",
+    "don't do that",
 }
 
 
