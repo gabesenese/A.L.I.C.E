@@ -678,6 +678,15 @@ _INSTRUCTION_REQUEST_RE = re.compile(
 )
 
 
+_AGENDA_RE = re.compile(
+    r"^(?:so\s+|and\s+|ok(?:ay)?\s+)?(?:"
+    r"what(?:'s|\s+is)\s+(?:on\s+)?my\s+(?:schedule|agenda|plan|day)\b"
+    r"|what\s+do\s+i\s+have\s+(?:on\s+|going\s+on\s+|planned\s+)?(?:for\s+)?(?:today|tomorrow|tonight|this\s+week)\b"
+    r"|what(?:'s|\s+is)\s+(?:happening|going\s+on|planned)\s+(?:for\s+)?(?:today|tomorrow|tonight|this\s+week)\b"
+    r"|anything\s+(?:on|planned)\s+(?:for\s+)?(?:today|tomorrow|tonight|this\s+week)\b)",
+    re.IGNORECASE,
+)
+
 _ADD_TO_LIST_RE = re.compile(
     r"^(?:please\s+)?(?:(?:can|could)\s+you\s+)?(?:add|put|stick|throw|include)\s+.+?\s+(?:to|on|onto|in|into)\s+"
     r"(?:my|the|our)\s+[\w' -]{0,30}?\blist\b",
@@ -4320,14 +4329,27 @@ class NLPProcessor:
         ):
             intent = "weather:forecast"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+        # "what's on my schedule today?" was answered by the model with no schedule
+        # in front of it. Questions naming the calendar stay with the calendar.
+        _chosen_here = False
+        if _AGENDA_RE.search(_raw) and "calendar" not in _raw:
+            intent = "reminder:agenda"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+            _chosen_here = True
         # "add milk to my shopping list" is an item for a list, not a request to
         # see the lists; the word "list" sent every one of these to notes:list.
         if _ADD_TO_LIST_RE.search(_raw):
             intent = "notes:append"
             intent_confidence = max(float(intent_confidence or 0.0), 0.93)
+            _chosen_here = True
         elif intent == "notes:append" and re.match(r"(?:show|list|what|which|read|open|see|display)\b", _raw):
             # Carried over from an add on the turn before, but this one asks to see.
             intent = "notes:list"
+        if _chosen_here:
+            # A question reads as conversation, and the category gate turns tools off
+            # for conversation; left on, that flag sent the turn to the model anyway.
+            parsed_command.modifiers["tool_execution_disabled"] = False
+            parsed_command.modifiers.pop("tool_eligibility_gate", None)
         # A request for instructions is answered, never acted on. "how do I set a
         # reminder on my iphone?" went to reminder:set, "show me how recursion
         # works" to notes:read, and "find the bug: ..." to notes:search, each at a

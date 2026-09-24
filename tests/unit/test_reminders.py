@@ -175,3 +175,67 @@ def test_a_line_said_unprompted_waits_for_the_turn_to_finish(capsys):
         "Not much.",
         "Heads up, the build has been red for a day.",
     ]
+
+
+def _note(title, due_date, archived=False):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(title=title, due_date=due_date, archived=archived, checklist_items=None)
+
+
+def test_the_agenda_is_what_she_actually_knows(tmp_path):
+    """Answered by the model with nothing in front of it, "what's on my schedule
+    today?" could only be made up."""
+    store = ReminderStore(tmp_path / "r.json")
+    store.add("call mom", NOW.replace(hour=17, minute=0))
+    store.add("pay rent", NOW.replace(hour=9, minute=0) + timedelta(days=1))
+    notes = [_note("Submit expenses", "2026-09-24T15:30"), _note("Old thing", "2026-09-24T16:00", archived=True)]
+    plugin = ReminderPlugin(store, notes=lambda: notes)
+
+    today = plugin._agenda("what's on my schedule today?", NOW)["response"]
+    tomorrow = plugin._agenda("what do I have tomorrow?", NOW)["response"]
+
+    assert today == 'For today: "Submit expenses" is due at 3:30 PM; call mom at 5:00 PM.'
+    assert tomorrow == "For tomorrow: pay rent at 9:00 AM."
+
+
+def test_a_note_due_on_a_date_is_not_given_a_time(tmp_path):
+    """A bare due date counts until the end of the day; reading that out as
+    "due at 11:59 PM" would be a time he never set."""
+    notes = [_note("Tax forms", "2026-09-25")]
+    plugin = ReminderPlugin(ReminderStore(tmp_path / "r.json"), notes=lambda: notes)
+
+    assert plugin._agenda("what do I have tomorrow?", NOW)["response"] == 'For tomorrow: "Tax forms" is due.'
+    assert plugin._agenda("anything planned for this week?", NOW)["response"] == (
+        'For this week: "Tax forms" is due tomorrow.'
+    )
+
+
+def test_an_empty_day_is_said_plainly(tmp_path):
+    plugin = ReminderPlugin(ReminderStore(tmp_path / "r.json"))
+    assert plugin._agenda("what do I have today?", NOW)["response"] == "Nothing on your reminders or notes for today."
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "what's on my schedule today?",
+        "what do I have today?",
+        "what's my agenda for tomorrow",
+        "anything planned for this week?",
+    ],
+)
+def test_agenda_questions_are_routed_to_the_agenda(text):
+    from ai.core.nlp_processor import NLPProcessor
+
+    result = NLPProcessor().process(text)
+    assert result.intent == "reminder:agenda"
+    # Routed here but with tools still switched off by the conversation gate, the
+    # question went to the model anyway.
+    assert not result.parsed_command["modifiers"].get("tool_execution_disabled")
+
+
+def test_calendar_questions_stay_with_the_calendar():
+    from ai.core.nlp_processor import NLPProcessor
+
+    assert NLPProcessor().process("what's on my calendar today").intent != "reminder:agenda"

@@ -1700,7 +1700,8 @@ class ALICE:
         from ai.plugins.rag_indexer_plugin import RAGIndexerPlugin
 
         # Register NotesPlugin early to ensure it handles note commands before calendar
-        self.plugins.register_plugin(NotesPlugin())
+        notes_plugin = NotesPlugin()
+        self.plugins.register_plugin(notes_plugin)
         self.plugins.register_plugin(WeatherPlugin())
         self.plugins.register_plugin(MapsPlugin())
         self.plugins.register_plugin(TimePlugin())
@@ -1712,7 +1713,7 @@ class ALICE:
         # Ahead of the calendar, which also answers to the word "reminder".
         from ai.plugins.reminder_plugin import ReminderPlugin
 
-        self.plugins.register_plugin(ReminderPlugin())
+        self.plugins.register_plugin(ReminderPlugin(notes=lambda: notes_plugin.manager.get_all_notes()))
         self.plugins.register_plugin(CalendarPlugin())
         self.plugins.register_plugin(RAGIndexerPlugin(self.memory))  # RAG document indexer
         self.plugins.register_plugin(MemoryHealthPlugin())

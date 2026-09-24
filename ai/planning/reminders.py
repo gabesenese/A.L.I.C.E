@@ -17,7 +17,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -166,14 +166,22 @@ def parse_reminder(text: str, now: Optional[datetime] = None) -> Optional[Tuple[
     return (task, due) if task else None
 
 
-def describe_time(due: datetime, now: Optional[datetime] = None) -> str:
+def clock_time(due: datetime) -> str:
+    return due.strftime("%I:%M %p").lstrip("0")
+
+
+def describe_day(due: datetime, now: Optional[datetime] = None) -> str:
     now = now or datetime.now()
-    clock = due.strftime("%I:%M %p").lstrip("0")
     if due.date() == now.date():
-        return f"at {clock}"
+        return "today"
     if due.date() == (now + timedelta(days=1)).date():
-        return f"tomorrow at {clock}"
-    return f"on {due.strftime('%A %B')} {due.day} at {clock}"
+        return "tomorrow"
+    return f"on {due.strftime('%A %B')} {due.day}"
+
+
+def describe_time(due: datetime, now: Optional[datetime] = None) -> str:
+    day = describe_day(due, now)
+    return f"at {clock_time(due)}" if day == "today" else f"{day} at {clock_time(due)}"
 
 
 # -- keeping them -------------------------------------------------------------
@@ -311,3 +319,53 @@ class ReminderWatcher:
 
     def stop(self) -> None:
         self._stop.set()
+
+
+# -- the agenda ---------------------------------------------------------------
+
+
+def agenda_window(text: str, now: Optional[datetime] = None) -> Tuple[datetime, datetime, str]:
+    """The stretch of time an agenda question asks about: today, tomorrow or this week."""
+    now = now or datetime.now()
+    low = str(text or "").lower()
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if "tomorrow" in low:
+        return midnight + timedelta(days=1), midnight + timedelta(days=2), "tomorrow"
+    if "week" in low:
+        return now, midnight + timedelta(days=7), "this week"
+    return now, midnight + timedelta(days=1), "today"
+
+
+def _note_due(note: Any) -> Optional[Tuple[datetime, bool]]:
+    """When an open note falls due, and whether that includes a time of day."""
+    if getattr(note, "archived", False):
+        return None
+    items = getattr(note, "checklist_items", None) or []
+    if items and all(bool((item or {}).get("checked")) for item in items if isinstance(item, dict)):
+        return None
+    raw = str(getattr(note, "due_date", "") or "").strip()
+    if not raw:
+        return None
+    try:
+        due = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if due.tzinfo is not None:
+        due = due.astimezone().replace(tzinfo=None)
+    if len(raw) <= 10:
+        # A bare date is due by the end of that day, and has no time to read out.
+        return due.replace(hour=23, minute=59), False
+    return due, True
+
+
+def agenda(
+    store: ReminderStore, notes: Iterable[Any], start: datetime, end: datetime
+) -> List[Tuple[datetime, str, bool]]:
+    """Reminders and notes falling due between ``start`` and ``end``, soonest
+    first, each with whether it has a time of day or only a date."""
+    items = [(r.due_at, r.text, True) for r in store.pending() if start <= r.due_at < end]
+    for note in notes or []:
+        found = _note_due(note)
+        if found is not None and start <= found[0] < end:
+            items.append((found[0], f'"{getattr(note, "title", "")}" is due', found[1]))
+    return sorted(items)

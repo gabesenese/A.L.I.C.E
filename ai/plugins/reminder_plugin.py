@@ -8,15 +8,25 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
-from ai.planning.reminders import ReminderStore, describe_time, parse_reminder
+from ai.planning.reminders import (
+    ReminderStore,
+    agenda,
+    agenda_window,
+    clock_time,
+    describe_day,
+    describe_time,
+    parse_reminder,
+)
 from ai.plugins.plugin_system import PluginInterface
 
 
 class ReminderPlugin(PluginInterface):
-    def __init__(self, store: Optional[ReminderStore] = None) -> None:
+    def __init__(self, store: Optional[ReminderStore] = None, notes: Optional[Callable[[], List[Any]]] = None) -> None:
         super().__init__()
+        # Notes with due dates belong on the agenda too.
+        self.notes = notes
         self.name = "ReminderPlugin"
         self.description = "Set, list and cancel timed reminders"
         self.capabilities = ["reminders"]
@@ -33,6 +43,8 @@ class ReminderPlugin(PluginInterface):
         action = str(intent or "").split(":", 1)[-1]
         if action == "list":
             return self._list(now)
+        if action == "agenda":
+            return self._agenda(query, now)
         if action == "cancel":
             cancelled = self.store.cancel(query)
             if not cancelled:
@@ -74,6 +86,37 @@ class ReminderPlugin(PluginInterface):
             "success": True,
             "response": "Your reminders: " + "; ".join(items) + ".",
             "data": {"count": len(items), "reminders": items},
+        }
+
+    def _agenda(self, query: str, now: datetime) -> Dict[str, Any]:
+        """What he has on, from what Alice actually knows: his reminders and the
+        notes falling due. Answered by the model with nothing in front of it,
+        "what's on my schedule today?" could only be made up."""
+        start, end, label = agenda_window(query, now)
+        try:
+            notes = list(self.notes() if self.notes else [])
+        except Exception:
+            notes = []
+        items = agenda(self.store, notes, start, end)
+        if not items:
+            return {
+                "success": True,
+                "response": f"Nothing on your reminders or notes for {label}.",
+                "data": {"count": 0, "window": label},
+            }
+        # "For tomorrow: pay rent at 9:00 AM", not "pay rent tomorrow at 9:00 AM".
+        one_day = label in {"today", "tomorrow"}
+        lines = []
+        for due, text, timed in items:
+            if timed:
+                when = f"at {clock_time(due)}" if one_day else describe_time(due, now)
+            else:
+                when = "" if one_day else describe_day(due, now)
+            lines.append(f"{text} {when}".strip())
+        return {
+            "success": True,
+            "response": f"For {label}: " + "; ".join(lines) + ".",
+            "data": {"count": len(lines), "window": label, "items": lines},
         }
 
     def shutdown(self) -> None:

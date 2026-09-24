@@ -23,10 +23,15 @@ def nlp():
         "add eggs and bread to the grocery list",
         "put batteries on my shopping list",
         "add call the dentist to my todo list",
+        "can you add milk to my shopping list?",
     ],
 )
 def test_it_is_understood_as_adding(nlp, text):
-    assert nlp.process(text).intent == "notes:append"
+    result = nlp.process(text)
+    assert result.intent == "notes:append"
+    # A question reads as conversation, and the gate that turns tools off for
+    # conversation would send the turn to the model anyway.
+    assert not result.parsed_command["modifiers"].get("tool_execution_disabled")
 
 
 def test_showing_the_lists_is_still_showing(nlp):
