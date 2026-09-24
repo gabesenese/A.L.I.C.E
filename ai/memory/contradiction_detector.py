@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sqlite3
 import uuid
@@ -43,8 +44,10 @@ class ContradictionDetector:
     Schema: contradictions table in alice.db
     """
 
-    def __init__(self, db_path: Path = _DB_PATH) -> None:
-        self.db_path = db_path
+    def __init__(self, db_path: Optional[Path] = None) -> None:
+        # ALICE_MEMORY_DB, like the memory and goal stores. Without it the test
+        # suite wrote sessions and opinions into the user's real alice.db.
+        self.db_path = Path(db_path or os.getenv("ALICE_MEMORY_DB") or _DB_PATH)
         self._init_schema()
 
     def _conn(self) -> ContextManager[sqlite3.Connection]:

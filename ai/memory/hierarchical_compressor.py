@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import uuid
 from datetime import date, datetime, timezone
@@ -46,8 +47,10 @@ class HierarchicalCompressor:
     the reader and the writer of the schema cannot disagree about it.
     """
 
-    def __init__(self, db_path: Path = _DB_PATH) -> None:
-        self.db_path = db_path
+    def __init__(self, db_path: Optional[Path] = None) -> None:
+        # ALICE_MEMORY_DB, like the memory and goal stores. Without it the test
+        # suite wrote sessions and opinions into the user's real alice.db.
+        self.db_path = Path(db_path or os.getenv("ALICE_MEMORY_DB") or _DB_PATH)
         self._init_schema()
 
     def _init_schema(self) -> None:

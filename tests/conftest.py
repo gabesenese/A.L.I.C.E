@@ -13,6 +13,14 @@ os.environ.setdefault("ALICE_ENABLE_BACKGROUND_SERVICES", "0")
 # user's own data directory. Its own tests build a StartupDoctor against a
 # tmp_path, so nothing here needs the real one to run.
 os.environ.setdefault("ALICE_STARTUP_DOCTOR", "0")
+# Every store sharing data/memory/alice.db reads ALICE_MEMORY_DB. Each test gets
+# its own below; this covers everything outside a test. Every ContractPipeline
+# registers an exit handler that closes its session in the identity store, and
+# those run after per-test isolation is undone, so the suite wrote a session row
+# into the user's real database for each pipeline it built.
+_SESSION_DB_DIR = tempfile.mkdtemp(prefix="alice-tests-")
+os.environ["ALICE_MEMORY_DB"] = str(Path(_SESSION_DB_DIR) / "alice.db")
+atexit.register(shutil.rmtree, _SESSION_DB_DIR, True)
 
 import pytest
 import pytest_asyncio
@@ -93,10 +101,20 @@ def isolate_memory_store(tmp_path, monkeypatch):
     a test that passes alone fails in a full run.
     """
     import ai.goals.goal_store as goal_store
+    import ai.identity.identity_store as identity_store
+    import ai.memory.causal_memory as causal_memory
+    import ai.memory.contradiction_detector as contradiction_detector
+    import ai.memory.hierarchical_compressor as hierarchical_compressor
     import ai.memory.memory_store as memory_store
 
     monkeypatch.setenv("ALICE_MEMORY_DB", str(tmp_path / "alice.db"))
     monkeypatch.setattr(memory_store, "_memory_store", None, raising=False)
+    # Alice's own opinions and session history live in the same file, and her
+    # opinions are read back into every prompt.
+    monkeypatch.setattr(identity_store, "_store", None, raising=False)
+    monkeypatch.setattr(contradiction_detector, "_detector", None, raising=False)
+    monkeypatch.setattr(hierarchical_compressor, "_compressor", None, raising=False)
+    monkeypatch.setattr(causal_memory, "_causal_memory", None, raising=False)
     # GoalStore writes goals into the same file, behind its own singleton, so
     # leaving it alone means the goal stack Gabriel is actually working from
     # accumulates whatever strings the suite feeds through a turn.

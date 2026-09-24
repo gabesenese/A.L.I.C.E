@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -28,8 +29,10 @@ def _confidence(evidence_count: int) -> float:
 
 
 class IdentityStore:
-    def __init__(self, db_path: Path = _DB_PATH) -> None:
-        self._path = db_path
+    def __init__(self, db_path: Optional[Path] = None) -> None:
+        # ALICE_MEMORY_DB, like the memory and goal stores. Without it the test
+        # suite wrote sessions and opinions into the user's real alice.db.
+        self._path = Path(db_path or os.getenv("ALICE_MEMORY_DB") or _DB_PATH)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
