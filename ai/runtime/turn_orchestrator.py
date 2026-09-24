@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, replace
 import logging
 import os
 import re
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from ai.runtime.continuity_claim_guard import UNSUPPORTED_CLAIM_REPLY
@@ -458,6 +459,24 @@ def _remember_turn(alice: Any, user_input: str, reply: str, recorded_before: int
             logger.debug("Could not record the turn: %s", exc)
 
 
+def _note_last_interaction(alice: Any, user_input: str, reply: str, intent: str = "") -> None:
+    """What /correct and /feedback act on.
+
+    Only a helper nothing called ever set it, so both commands always answered
+    that there was no previous interaction to correct.
+    """
+    try:
+        alice.last_interaction = {
+            "timestamp": datetime.now().isoformat(),
+            "user_input": str(user_input or ""),
+            "assistant_response": str(reply or ""),
+            "intent": str(intent or ""),
+            "entities": {},
+        }
+    except Exception as exc:
+        logger.debug("Could not note the last interaction: %s", exc)
+
+
 def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> str:
     """Default app turn entrypoint.
 
@@ -494,6 +513,7 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
                 )
                 if chain_response:
                     _remember_turn(alice, user_input, chain_response, recorded_before)
+                    _note_last_interaction(alice, user_input, chain_response)
                     if use_voice and getattr(alice, "speech", None):
                         alice.speech.speak(chain_response, blocking=False)
                     return chain_response
@@ -530,6 +550,7 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
                         pass
                 response = str(result.response_text or "")
                 _remember_turn(alice, user_input, response, recorded_before)
+                _note_last_interaction(alice, user_input, response, str(meta.get("intent") or ""))
                 if use_voice and getattr(alice, "speech", None):
                     alice.speech.speak(response, blocking=False)
                 return response

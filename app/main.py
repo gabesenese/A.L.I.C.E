@@ -6720,6 +6720,45 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             # Ultimate fallback
             return f"Take care, {name}!"
 
+    def _learn_intent_correction(self, user_input: str, intent: str) -> bool:
+        """Route this phrasing to the corrected intent from now on, and keep it.
+
+        /correct recorded corrections in a store nothing applied, so a correction
+        changed nothing until an offline training script ran, and that wrote
+        where nothing reads. The NLP already applies the corrections in
+        memory/curated_patterns.json as overrides; this adds to them, in this
+        session and on disk.
+        """
+        import json
+        from pathlib import Path
+
+        label = str(intent or "").strip().lower()
+        text = str(user_input or "").strip()
+        if not text or not re.fullmatch(r"[a-z_]+:[a-z_]+", label):
+            return False
+        nlp = getattr(self, "nlp", None)
+        learned = getattr(nlp, "learned_corrections", None)
+        if isinstance(learned, dict):
+            learned[text.lower()] = label
+            # The similarity index over correction keys is rebuilt on next use.
+            if hasattr(nlp, "_correction_embeddings"):
+                setattr(nlp, "_correction_embeddings", None)
+        path = Path("memory/curated_patterns.json")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+            kept = [
+                c
+                for c in list(data.get("corrections") or [])
+                if str((c or {}).get("user_input") or "").strip().lower() != text.lower()
+            ]
+            kept.append({"user_input": text, "expected_intent": label, "source": "user_correction"})
+            data["corrections"] = kept
+            path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        except Exception as exc:
+            logger.warning("Could not save the intent correction: %s", exc)
+        return True
+
     def _handle_correction_command(self, command: str):
         """Handle correction commands"""
         last = self.last_interaction or {}
@@ -6771,7 +6810,11 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                     f"User corrected intent from '{last_intent}' to '{new_intent}'",
                     {"original_nlp_result": last_nlp_result},
                 )
-                print(f" Recorded intent correction: {last_intent}  {new_intent}")
+                print(f" Recorded intent correction: {last_intent} -> {new_intent}")
+                if self._learn_intent_correction(last_user_input, new_intent):
+                    print(f' Learned: "{last_user_input}" goes to {new_intent.strip().lower()} from now on.')
+                else:
+                    print(" To change how this is routed, give an intent label such as notes:create.")
 
         elif correction_type == "entity":
             print(f"Current entities: {last_entities}")
@@ -6779,7 +6822,9 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             try:
                 new_entities_input = input("Correct entities: ").strip()
                 if new_entities_input:
-                    new_entities = eval(new_entities_input)  # Simple eval for demo
+                    import json
+
+                    new_entities = json.loads(new_entities_input)
                     self.learning_manager.record_correction(
                         CorrectionType.ENTITY_EXTRACTION,
                         last_user_input,

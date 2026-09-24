@@ -3629,14 +3629,18 @@ class NLPProcessor:
                 normalized_text=normalized_text,
             )
 
-        intent, intent_confidence = self.route_coordinator.apply_category_gate(
-            intent=intent,
-            intent_confidence=float(intent_confidence or 0.0),
-            intent_category=intent_category,
-            parsed_command=parsed_command,
-            normalized_text=normalized_text,
-            previous_intent=str(self.context.last_intent or ""),
-        )
+        # A correction he taught is not re-judged by phrasing: the category gate
+        # turned "is there anything from the dentist" back into conversation right
+        # after he had corrected it to notes:search.
+        if not _correction_intent:
+            intent, intent_confidence = self.route_coordinator.apply_category_gate(
+                intent=intent,
+                intent_confidence=float(intent_confidence or 0.0),
+                intent_category=intent_category,
+                parsed_command=parsed_command,
+                normalized_text=normalized_text,
+                previous_intent=str(self.context.last_intent or ""),
+            )
 
         self.route_coordinator.ensure_metadata(
             parsed_command=parsed_command,
@@ -4117,16 +4121,19 @@ class NLPProcessor:
             and intent.startswith(("notes:", "email:", "calendar:", "reminder:", "weather:"))
         )
 
-        intent, intent_confidence = self.route_coordinator.apply_final_fallback(
-            intent=intent,
-            intent_confidence=float(intent_confidence or 0.0),
-            parsed_command=parsed_command,
-            final_plausibility=float(_final_plausibility),
-            strong_action_frame=_strong_action_frame,
-            followup_locked_final=_followup_locked_final,
-            should_force_unknown_fallback=self._should_force_unknown_fallback,
-            normalized_text=normalized_text,
-        )
+        # Nor by plausibility: the phrasing looked unlike a notes request, which is
+        # exactly why he had to teach it.
+        if not _correction_intent:
+            intent, intent_confidence = self.route_coordinator.apply_final_fallback(
+                intent=intent,
+                intent_confidence=float(intent_confidence or 0.0),
+                parsed_command=parsed_command,
+                final_plausibility=float(_final_plausibility),
+                strong_action_frame=_strong_action_frame,
+                followup_locked_final=_followup_locked_final,
+                should_force_unknown_fallback=self._should_force_unknown_fallback,
+                normalized_text=normalized_text,
+            )
 
         # Continue with rest of processing
 
