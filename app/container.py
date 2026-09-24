@@ -33,6 +33,7 @@ class AppContainer:
                     self._alice = ALICE(
                         voice_enabled=self.settings.enable_voice,
                         llm_model=self.settings.ollama_model,
+                        llm_host=self.settings.ollama_base_url,
                         runtime_mode=self.settings.runtime_mode,
                     )
         return self._alice

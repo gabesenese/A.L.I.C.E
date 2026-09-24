@@ -32,7 +32,10 @@ class Settings(BaseSettings):
     # A 70B model is not a default a local assistant can assume; it needs ~40GB
     # of RAM to run at all. The CLI already defaulted to llama3.1:8b, so the two
     # entry points disagreed about which model Alice runs.
-    ollama_model: str = "llama3.1:8b"
+    ollama_model: str = Field(
+        default="llama3.1:8b",
+        validation_alias=AliasChoices("ALICE_MODEL", "ALICE_OLLAMA_MODEL"),
+    )
 
     # Features
     enable_voice: bool = False

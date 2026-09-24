@@ -51,7 +51,7 @@ from app.main import ALICE
 
 def start_alice_rich(
     voice_enabled=False,
-    llm_model="llama3.1:8b",
+    llm_model=None,
     user_name="Gabriel",
     debug=False,
     privacy_mode=False,
@@ -66,7 +66,6 @@ def start_alice_rich(
         from ui.rich_terminal import RichTerminalUI
 
     ui = RichTerminalUI(user_name)
-    ui.show_loading("Initializing A.L.I.C.E systems")
 
     # Initialize ALICE with stdout+stderr suppressed (unless debug)
     # Suppressing stderr catches tqdm progress bars and model LOAD REPORTs
@@ -79,14 +78,17 @@ def start_alice_rich(
         sys.stderr = io.StringIO()
 
     try:
-        alice = ALICE(
-            voice_enabled=voice_enabled,
-            llm_model=llm_model,
-            user_name=user_name,
-            debug=debug,
-            privacy_mode=privacy_mode,
-            llm_policy=llm_policy,
-        )
+        # The spinner covers the real load. A 2-second progress bar used to
+        # fill before any work started, then the screen froze while it ran.
+        with ui.thinking_spinner():
+            alice = ALICE(
+                voice_enabled=voice_enabled,
+                llm_model=llm_model,
+                user_name=user_name,
+                debug=debug,
+                privacy_mode=privacy_mode,
+                llm_policy=llm_policy,
+            )
         if not debug:
             sys.stdout = old_stdout
             sys.stderr = old_stderr
@@ -98,6 +100,15 @@ def start_alice_rich(
         if privacy_mode:
             ui.print_info(" Privacy mode: Episodic memories will not be saved.")
         ui.print_info("")
+
+        # She speaks first, in her own words.
+        try:
+            with ui.thinking_spinner():
+                greeting = str(alice._get_greeting() or "").strip()
+        except Exception:
+            greeting = ""
+        if greeting:
+            ui.print_assistant_response(greeting)
 
         # Main interaction loop
         while True:
@@ -111,7 +122,13 @@ def start_alice_rich(
                 "/exit",
                 "/quit",
             ]:
-                ui.show_goodbye()
+                try:
+                    with ui.thinking_spinner():
+                        farewell = str(alice._get_farewell() or "").strip()
+                except Exception:
+                    farewell = ""
+                if farewell:
+                    ui.print_assistant_response(farewell)
                 break
 
             if not user_input:
@@ -120,9 +137,6 @@ def start_alice_rich(
             # Handle special commands
             if user_input.startswith("/"):
                 alice._handle_command(user_input)
-                if user_input.lower() in ["/exit", "/quit"]:
-                    ui.show_goodbye()
-                    break
                 continue
 
             # Process input
@@ -132,7 +146,10 @@ def start_alice_rich(
                     response = alice.process_input(user_input, use_voice=voice_enabled)
                 ui.print_assistant_response(response)
             except Exception as e:
-                ui.print_error(str(e))
+                # The exception text is for the developer, not the conversation.
+                ui.print_error("Something broke on my side while handling that. Try it again, or put it another way.")
+                if debug:
+                    ui.print_info(f"{type(e).__name__}: {e}")
 
         alice.shutdown()
 
@@ -177,8 +194,8 @@ For debugging with full logs:
     parser.add_argument(
         "--model",
         type=str,
-        default="llama3.1:8b",
-        help="LLM model to use (default: llama3.1:8b)",
+        default=None,
+        help="Ollama model (default: $ALICE_MODEL, else llama3.1:8b)",
     )
 
     parser.add_argument(

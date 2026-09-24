@@ -1,4 +1,3 @@
-import importlib
 import threading
 import os
 import sys
@@ -13,10 +12,8 @@ from brain.heartbeat import Heartbeat
 from brain.ambient_monitor import get_ambient_monitor
 from brain.task_scheduler import TaskScheduler
 
-from ai.infrastructure.rbac import get_rbac_engine
 from ai.infrastructure.runtime_flags import background_services_enabled, scripted_overrides_enabled
 from ai.infrastructure.approval_ledger import get_approval_ledger
-from ai.roadmap import get_roadmap_completion_stack
 from ai.integration.git_manager import get_git_manager
 from ai.integration.build_runner import get_build_runner
 from ai.integration.operator_workflow import OperatorWorkflowOrchestrator
@@ -26,13 +23,16 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(APP_DIR)
 sys.path.insert(0, PROJECT_ROOT)
 
+# How long shutdown waits for a classifier load that is still running. A cached
+# model finishes in a few seconds; past this, the load is waiting on the network.
+CLASSIFIER_WARM_SHUTDOWN_WAIT_SECONDS = 10.0
+
 # Import ALICE components
 from ai.core.nlp_processor import NLPProcessor
-from ai.core.llm_engine import LocalLLMEngine, LLMConfig
+from ai.core.llm_engine import LocalLLMEngine, LLMConfig, configured_model
 from ai.memory.context_engine import get_context_engine
 from ai.memory.memory_system import MemorySystem
 from ai.memory.conversation_summarizer import ConversationSummarizer
-from ai.models.entity_relationship_tracker import EntityRelationshipTracker
 from ai.learning.active_learning_manager import (
     ActiveLearningManager,
     CorrectionType,
@@ -54,7 +54,6 @@ from ai.plugins.document_plugin import DocumentPlugin
 from ai.plugins.calendar_plugin import CalendarPlugin
 from ai.plugins.notes_plugin import NotesPlugin
 from ai.plugins.maps_plugin import MapsPlugin
-from ai.planning.task_executor import TaskExecutor
 
 # New anticipatory AI systems
 from ai.infrastructure.event_bus import get_event_bus, EventPriority
@@ -64,7 +63,6 @@ from ai.learning.pattern_learner import get_pattern_learner
 from ai.optimization.system_monitor import get_system_monitor
 from ai.planning.task_planner import get_planner
 from ai.planning.plan_executor import initialize_executor
-from ai.planning.planner import ReasoningPlanner
 from ai.planning.task import PersistentTaskQueue, Task
 from ai.core.reasoning_engine import (
     get_reasoning_engine,
@@ -73,8 +71,6 @@ from ai.planning.proactive_assistant import (
     get_proactive_assistant,
 )
 from ai.infrastructure.error_recovery import get_error_recovery
-from ai.memory.smart_context_cache import get_context_cache
-from ai.memory.adaptive_context_selector import get_context_selector
 from ai.memory.conversation_state import get_conversation_state_tracker
 from ai.context_resolver import get_context_resolver
 from ai.optimization.response_optimizer import get_response_optimizer
@@ -96,21 +92,7 @@ from ai.core.turn_routing_policy import get_turn_routing_policy
 from ai.core.live_state_service import get_live_state_service
 from ai.core.execution_verifier import get_execution_verifier
 from ai.core.clarification_resolver import get_clarification_resolver
-from ai.core.activity_monitor import ActivityMonitor
-from ai.core.temporal_reasoner import TemporalReasoner
-from ai.core.adaptive_intent_calibrator import AdaptiveIntentCalibrator
-from ai.core.context_intent_refiner import ContextIntentRefiner
-from ai.core.constraint_preference_extractor import ConstraintPreferenceExtractor
-from ai.core.multi_step_reasoning_engine import MultiStepReasoningEngine
-from ai.core.episodic_memory_engine import EpisodicMemoryEngine
-from ai.core.proactive_interruption_manager import ProactiveInterruptionManager
 from ai.core.adaptive_response_style import AdaptiveResponseStyle
-from ai.core.causal_inference_engine import CausalInferenceEngine
-from ai.core.hypothetical_scenario_generator import HypotheticalScenarioGenerator
-from ai.core.decision_constraint_solver import DecisionConstraintSolver
-from ai.core.semantic_memory_index import SemanticMemoryIndex
-from ai.core.memory_consolidator import MemoryConsolidator
-from ai.core.cross_session_pattern_detector import CrossSessionPatternDetector
 from ai.core.system_design_response_guard import SystemDesignResponseGuard
 from ai.core.unified_action_engine import get_unified_action_engine
 from ai.core.entity_registry import get_entity_registry
@@ -153,7 +135,6 @@ from ai.infrastructure.database_pool import (
     DatabaseConfig,
     DatabaseType,
 )
-from ai.infrastructure.runtime_flags import is_enabled
 from ai.runtime.alice_contract_factory import build_runtime_boundaries
 from ai.runtime.contract_pipeline import ContractPipeline
 from ai.runtime.fallback_policy import resolve_turn_success_and_route
@@ -162,6 +143,7 @@ from ai.runtime.response_authority import (
     contract_respond_stage,
     finalize_conversational_surface,
 )
+from ai.runtime.response_discipline import strip_ai_disclaimer
 from ai.runtime.turn_orchestrator import run_default_turn
 
 # ===== 10 TIER IMPROVEMENTS (LAZY IMPORT UNDER QUARANTINE FLAGS) =====
@@ -173,17 +155,11 @@ from tools.auditing.startup_doctor import StartupDoctor
 # NLP perception & policy layer
 from ai.core.perception import Perception
 from ai.core.interaction_policy import InteractionPolicy
-from ai.learning.learning_engine import get_nlp_error_logger
 
 # Area 1-8: advanced intelligence components (merged into existing modules)
 from ai.core.intent_classifier import get_bayesian_router
-from ai.memory.context_graph import get_world_graph
-from ai.core.interaction_policy import get_knob_bandit
-from ai.memory.memory_system import get_memory_replay
 from ai.core.failure_taxonomy import get_self_debugger, TurnPostmortem
-from ai.plugins.plugin_system import get_capability_graph
-from ai.learning.pattern_miner import get_habit_miner, get_htn_planner, HTNMethod
-from ai.infrastructure.metrics_collector import get_adaptive_controller
+from ai.learning.pattern_miner import get_htn_planner, HTNMethod
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -199,13 +175,17 @@ class ALICE:
     def __init__(
         self,
         voice_enabled: bool = False,
-        llm_model: str = "llama3.1:8b",
+        llm_model: Optional[str] = None,
         user_name: str = "User",
         debug: bool = False,
         privacy_mode: bool = False,
         llm_policy: str = "default",
         runtime_mode: str | None = None,
+        llm_host: Optional[str] = None,
     ):
+        # llm_model and llm_host default to ALICE_MODEL and ALICE_OLLAMA_HOST
+        # (see ai.core.llm_engine.configured_model / configured_host).
+        llm_model = configured_model(llm_model)
         self.runtime_mode = resolve_runtime_mode(runtime_mode)
         self.runtime_mode_config = RuntimeModeConfig.for_mode(self.runtime_mode)
         self.voice_enabled = voice_enabled
@@ -365,25 +345,9 @@ class ALICE:
         self.system_monitor = None
         self.planner = None
         self.plan_executor = None
-        self.reasoning_planner = None
         self.persistent_task_queue = None
-        self.activity_monitor = None
-        self.temporal_reasoner = None
-        self.adaptive_intent_calibrator = None
-        self.context_intent_refiner = None
-        self.constraint_preference_extractor = None
-        self.multi_step_reasoning_engine = None
-        self.episodic_memory_engine = None
-        self.proactive_interruption_manager = None
         self.adaptive_response_style = None
-        self.causal_inference_engine = None
-        self.hypothetical_scenario_generator = None
-        self.decision_constraint_solver = None
-        self.semantic_memory_index = None
-        self.memory_consolidator = None
-        self.cross_session_pattern_detector = None
         self.system_design_response_guard = None
-        self._episodic_turn_counter = 0
         self._turn_count = 0
         self._last_routed_intent = ""
         self._last_routed_confidence = 0.0
@@ -415,12 +379,10 @@ class ALICE:
             self._classifier_warm_thread.start()
             # Shared session objects from NLP stack
             self.dialogue_memory = getattr(self.nlp, "dialogue_memory", None)
-            self.fp_store = getattr(self.nlp, "_fp_store", None)
 
             # NLP perception & policy layer (sit between NLP and routing)
             self.perception = Perception()
             self.interaction_policy = InteractionPolicy()
-            self.nlp_error_logger = get_nlp_error_logger()
             self.context_resolver = get_context_resolver()
 
             # Area 1–8: advanced intelligence components
@@ -437,25 +399,13 @@ class ALICE:
                         )
                 except Exception as _drain_err:
                     logger.debug("BayesianRouter cost-matrix seeding skipped: %s", _drain_err)
-                self.world_graph = get_world_graph(persistence_path="memory/world_graph.json")
-                self.knob_bandit = get_knob_bandit()
-                self.memory_replay = get_memory_replay()
                 self.self_debugger = get_self_debugger()
-                self.capability_graph = get_capability_graph()
-                self.habit_miner = get_habit_miner()
-                self.adaptive_controller = get_adaptive_controller()
                 self.htn_planner = get_htn_planner()
             except Exception as _adv_err:
                 logger.warning("Advanced components init failed (non-fatal): %s", _adv_err)
                 for _attr in (
                     "bayesian_router",
-                    "world_graph",
-                    "knob_bandit",
-                    "memory_replay",
                     "self_debugger",
-                    "capability_graph",
-                    "habit_miner",
-                    "adaptive_controller",
                     "htn_planner",
                 ):
                     if not hasattr(self, _attr):
@@ -525,8 +475,6 @@ class ALICE:
             self._last_exec_gate_eval = {}
             self._last_goal_tracker_topic = ""
             self.error_recovery = get_error_recovery()
-            self.context_cache = get_context_cache()
-            self.context_selector = get_context_selector()
             self.response_optimizer = get_response_optimizer(self.reasoning_engine)
             # Point self-reflection to workspace root so code-analysis requests
             # can resolve files like app/alice.py (not only ai/*).
@@ -668,7 +616,7 @@ class ALICE:
 
             # 4. LLM Engine
             logger.info("🧠 Loading LLM engine...")
-            llm_config = LLMConfig(model=llm_model)
+            llm_config = LLMConfig(model=llm_model, base_url=llm_host)
             self.llm = LocalLLMEngine(llm_config)
 
             # 4.0. Foundation Systems Integration
@@ -691,117 +639,6 @@ class ALICE:
                 self.foundations = None
                 self.structured_logger.error(f"Foundation systems failed: {e}", component="foundations")
 
-            # 4.0.5. ===== TIER IMPROVEMENTS INITIALIZATION =====
-            # Each of these is quarantined by default (see ai/infrastructure/runtime_flags)
-            # and is built only when its flag is set. The log used to announce
-            # "All 10 tier improvements initialized successfully, active_systems=10"
-            # unconditionally, so the ordinary startup — where every flag is off and
-            # nothing is constructed — still reported ten active subsystems.
-            if self.runtime_mode_config.enable_advanced_tiers:
-                logger.info("Initializing tier improvements (quarantine-aware)...")
-                tier_specs = [
-                    (
-                        "session_summarizer",
-                        "session_summarizer",
-                        "ai.memory.session_summarizer",
-                        "SessionSummarizer",
-                        {"summarize_every_n_turns": 5},
-                    ),
-                    (
-                        "capability_constraints",
-                        "capability_constraints",
-                        "ai.infrastructure.capability_constraints",
-                        "CapabilityConstraintsLedger",
-                        {},
-                    ),
-                    (
-                        "result_quality_scorer",
-                        "result_quality_scorer",
-                        "ai.core.result_quality_scorer",
-                        "ResultQualityScorer",
-                        {},
-                    ),
-                    (
-                        "goal_alignment_tracker",
-                        "goal_alignment_tracker",
-                        "ai.learning.goal_alignment_tracker",
-                        "GoalAlignmentTracker",
-                        {},
-                    ),
-                    (
-                        "tone_trajectory_engine",
-                        "tone_trajectory_engine",
-                        "ai.learning.tone_trajectory_engine",
-                        "ToneTrajectoryEngine",
-                        {},
-                    ),
-                    (
-                        "pattern_based_nudger",
-                        "pattern_nudger",
-                        "ai.proactivity.pattern_based_nudger",
-                        "PatternBasedNudger",
-                        {},
-                    ),
-                    (
-                        "system_state_api",
-                        "system_state_api",
-                        "ai.introspection.system_state_api",
-                        "SystemStateAPI",
-                        {},
-                    ),
-                    (
-                        "weak_spot_detector",
-                        "weak_spot_detector",
-                        "ai.learning.weak_spot_detector",
-                        "WeakSpotDetector",
-                        {},
-                    ),
-                    (
-                        "multi_goal_arbitrator",
-                        "multi_goal_arbitrator",
-                        "ai.goals.multi_goal_arbitrator",
-                        "MultiGoalArbitrator",
-                        {},
-                    ),
-                    (
-                        "routing_decision_logger",
-                        "routing_decision_logger",
-                        "ai.reasoning.routing_decision_logger",
-                        "RoutingDecisionLogger",
-                        {},
-                    ),
-                ]
-                active_tiers: List[str] = []
-                for flag, attribute, module_path, class_name, tier_kwargs in tier_specs:
-                    if not is_enabled(flag):
-                        continue
-                    try:
-                        module = importlib.import_module(module_path)
-                        setattr(self, attribute, getattr(module, class_name)(**tier_kwargs))
-                        active_tiers.append(flag)
-                    except Exception as e:
-                        # One tier failing is no reason to lose the rest, and it must
-                        # not be counted among the active ones.
-                        logger.error(f"[ERROR] Tier improvement {flag} failed to initialize: {e}")
-                        self.structured_logger.error(
-                            f"Tier improvement {flag} failed: {e}", component="tier_improvements"
-                        )
-                self.structured_logger.info(
-                    "Tier improvements initialized",
-                    component="tier_improvements",
-                    active_systems=len(active_tiers),
-                    active=list(active_tiers),
-                    available=len(tier_specs),
-                )
-                if active_tiers:
-                    logger.info(
-                        f"[OK] {len(active_tiers)}/{len(tier_specs)} tier improvements active: "
-                        f"{', '.join(active_tiers)}"
-                    )
-                else:
-                    logger.info(f"[OK] No tier improvements active ({len(tier_specs)} available, all quarantined)")
-            # ===== END 10 TIER IMPROVEMENTS =====
-
             # Inject LLM engine into autonomous agent now that it's loaded
             if getattr(self, "autonomous_agent", None):
                 self.autonomous_agent.llm_engine = self.llm
@@ -810,6 +647,7 @@ class ALICE:
             logger.info(" Initializing LLM Gateway with policy enforcement...")
             self.llm_gateway = get_llm_gateway(llm_engine=self.llm, learning_engine=self.learning_engine)
             logger.info("[OK] LLM Gateway active - all calls now policy-gated")
+            self._wire_llm_intent_arbiter()
 
             # 4.1.0 Contract Runtime Boundaries and Pipeline
             try:
@@ -878,10 +716,8 @@ class ALICE:
                     configure_minimal_policy()
 
             # 4.3. Runtime safety and verification guards
-            self.rbac_engine = get_rbac_engine()
             self.action_engine = get_unified_action_engine()
             self.approval_ledger = get_approval_ledger()
-            self.roadmap_stack = get_roadmap_completion_stack()
             self.world_state_memory = get_world_state_memory(storage_path="data/world_state.json")
             self.heartbeat = Heartbeat()
             self.ambient_monitor = get_ambient_monitor()
@@ -915,10 +751,6 @@ class ALICE:
             logger.info("Loading conversation summarizer...")
             self.summarizer = ConversationSummarizer(llm_engine=self.llm, llm_gateway=self.llm_gateway)
 
-            # 4.6. Entity Relationship Tracker
-            logger.info("Loading entity relationship tracker...")
-            self.relationship_tracker = EntityRelationshipTracker()
-
             # 4.7. Active Learning Manager
             logger.info("Loading active learning system...")
             self.learning_manager = ActiveLearningManager()
@@ -928,10 +760,6 @@ class ALICE:
             self.plugins = PluginManager()
             self._register_plugins()
             self.action_engine.bind_plugin_manager(self.plugins)
-
-            # 6. Task Executor
-            logger.info(" Loading task executor...")
-            self.executor = TaskExecutor(safe_mode=True)
 
             # 6.1. Operator integrations
             self.git_manager = get_git_manager(PROJECT_ROOT)
@@ -962,7 +790,6 @@ class ALICE:
 
             # 9. Advanced learning, testing, and telemetry systems
             self.pattern_miner = None
-            self.synthetic_corpus_gen = None
             self.multimodal_context = None
             self.lab_simulator = None
             self.red_team_tester = None
@@ -971,12 +798,6 @@ class ALICE:
                 try:
                     self.pattern_miner = PatternMiner()
                     logger.info("[OK] Pattern miner ready - will detect learnable patterns")
-                    if self.runtime_mode_config.enable_training:
-                        from ai.training.synthetic_corpus_generator import (
-                            SyntheticCorpusGenerator,
-                        )
-
-                        self.synthetic_corpus_gen = SyntheticCorpusGenerator()
                     if self.runtime_mode_config.enable_lab_tools:
                         from ai.lab_simulator import LabSimulator
                         from ai.red_team_tester import RedTeamTester
@@ -1001,7 +822,6 @@ class ALICE:
                     llm_engine=self.llm,
                     memory_system=self.memory,
                 )
-                self.reasoning_planner = ReasoningPlanner()
                 self.persistent_task_queue = PersistentTaskQueue("data/planning/runtime_tasks.json")
                 self.persistent_task_queue.register_handler("execute_plan", self._execute_plan_queue_task)
                 self.persistent_task_queue.start_background_loop(tick_seconds=0.2)
@@ -1069,6 +889,20 @@ class ALICE:
             logger.info("Semantic classifier warmed.")
         except Exception as e:
             logger.debug(f"Semantic classifier warm-up skipped: {e}")
+
+    def _wait_for_classifier_warm(self, timeout: float = CLASSIFIER_WARM_SHUTDOWN_WAIT_SECONDS) -> None:
+        """Give a still-running classifier warm a bounded chance to finish.
+
+        The warm is a daemon thread that may be inside torch when shutdown is
+        called. If the interpreter exits then, the C++ runtime aborts the process
+        ("terminate called without an active exception", SIGABRT). That crashed
+        the startup-cost test whenever the load was still running at exit, and it
+        can skip the exit hooks that save session state. A load that is only
+        waiting on the network is safe to abandon, so the wait is bounded.
+        """
+        warm = getattr(self, "_classifier_warm_thread", None)
+        if warm is not None and warm.is_alive():
+            warm.join(timeout=timeout)
 
     def _run_startup_doctor(self) -> None:
         """Run profile-based startup diagnostics and persist a health summary."""
@@ -1227,21 +1061,7 @@ class ALICE:
                 ],
             },
         }
-        self.activity_monitor = ActivityMonitor()
-        self.temporal_reasoner = TemporalReasoner()
-        self.adaptive_intent_calibrator = AdaptiveIntentCalibrator()
-        self.context_intent_refiner = ContextIntentRefiner()
-        self.constraint_preference_extractor = ConstraintPreferenceExtractor()
-        self.multi_step_reasoning_engine = MultiStepReasoningEngine()
-        self.episodic_memory_engine = EpisodicMemoryEngine()
-        self.proactive_interruption_manager = ProactiveInterruptionManager()
         self.adaptive_response_style = AdaptiveResponseStyle()
-        self.causal_inference_engine = CausalInferenceEngine()
-        self.hypothetical_scenario_generator = HypotheticalScenarioGenerator()
-        self.decision_constraint_solver = DecisionConstraintSolver()
-        self.semantic_memory_index = SemanticMemoryIndex()
-        self.memory_consolidator = MemoryConsolidator()
-        self.cross_session_pattern_detector = CrossSessionPatternDetector()
         self.system_design_response_guard = SystemDesignResponseGuard()
 
     def _is_location_query(self, user_input: str) -> bool:
@@ -1331,12 +1151,12 @@ class ALICE:
             )
         if "when i unwind" in lower or "i usually like to" in lower:
             return "A practical option is to recover with one short reset activity, then pick a single next step you can finish now."
-        if "as an ai" in lower or "language model" in lower:
-            if self._is_answerability_direct_question(user_input):
-                return self._answerability_gate_fallback_response(user_input)
-            if response_type == "clarification_prompt":
-                return "Please clarify the exact outcome you want so I can route this correctly."
-            return "I can help with that. Tell me the exact result you want."
+        # A self-disclaimer is not her voice, so the clause goes, and only the clause.
+        # This used to replace the whole answer whenever "language model" or "as an
+        # ai" appeared anywhere in it, so every question about how models work was
+        # answered with a stock line. Swapping a real answer for a canned one because
+        # of a word in it is the override north_star rule 2 calls the bug.
+        text = strip_ai_disclaimer(text).strip()
 
         # Tone-aware trim: keep professional tones concise.
         max_chars = {
@@ -1391,81 +1211,6 @@ class ALICE:
         Ollama is NEVER in control here — it is only a teacher when Alice lacks
         phrasing experience for a novel conversational pattern.
         """
-        # ── Notes ────────────────────────────────────────────────────────────
-        if response_type == "notes_count":
-            total = alice_response.get("total", 0)
-            extras = []
-            if alice_response.get("todos"):
-                extras.append(f"{alice_response['todos']} to-do")
-            if alice_response.get("ideas"):
-                extras.append(f"{alice_response['ideas']} idea")
-            if alice_response.get("meetings"):
-                extras.append(f"{alice_response['meetings']} meeting")
-            if alice_response.get("pinned"):
-                extras.append(f"{alice_response['pinned']} pinned")
-            if alice_response.get("archived"):
-                extras.append(f"{alice_response['archived']} archived")
-            detail = f" ({', '.join(extras)})" if extras else ""
-            if total == 0:
-                return "You don't have any notes yet."
-            return f"You have {total} note{'s' if total != 1 else ''}{detail}."
-
-        if response_type == "notes_listing":
-            notes = alice_response.get("notes", [])
-            count = alice_response.get("note_count", len(notes))
-            if not notes:
-                return "You don't have any notes yet."
-            titles = [n.get("title", "Untitled") if isinstance(n, dict) else str(n) for n in notes[:10]]
-            has_more = alice_response.get("has_more", False)
-            lines = [f"**You have {count} note{'s' if count != 1 else ''}:**", ""]
-            for i, t in enumerate(titles, 1):
-                lines.append(f"{i}. {t}")
-            if has_more:
-                lines.append(f"\n*…and {count - len(titles)} more.*")
-            return "\n".join(lines)
-
-        if response_type == "note_content":
-            title = alice_response.get("title", "that note")
-            content_body = alice_response.get("content", "")
-            tags = alice_response.get("tags", [])
-            header = f"## {title}\n" if title else ""
-            tag_line = f"\n---\n*Tags: {', '.join(tags)}*" if tags else ""
-            # Don't repeat the title as body — if a note's content was never
-            # filled in and equals its title, show a polite empty-note message.
-            body = content_body if content_body and content_body.strip() != title.strip() else ""
-            if not body:
-                return f"{header.strip()}\n\n*(This note has no content yet.)*".strip()
-            return f"{header}\n{body}{tag_line}".strip()
-
-        if response_type == "note_summary":
-            title = alice_response.get("title", "that note")
-            summary = alice_response.get("summary", {})
-            if isinstance(summary, dict):
-                lines = [f"## Summary: {title}", ""]
-                if summary.get("word_count"):
-                    lines.append(f"- **{summary['word_count']} words**")
-                if summary.get("key_points"):
-                    lines.append("\n**Key points:**")
-                    for pt in summary["key_points"][:5]:
-                        lines.append(f"- {pt}")
-                return "\n".join(lines) if len(lines) > 2 else f"Summary of **{title}** — no structured data available."
-            return f"**{title}:** {summary}"
-
-        if response_type == "operation_success":
-            op = str(alice_response.get("operation") or "operation").replace("_", " ").strip()
-            details = alice_response.get("details", {}) if isinstance(alice_response.get("details", {}), dict) else {}
-            subject = str(details.get("note_title") or details.get("title") or details.get("name") or "").strip()
-            if subject:
-                return f"Done: {op} for '{subject}'."
-            return f"Done: {op}."
-
-        if response_type == "operation_failure":
-            op = str(alice_response.get("operation") or "operation").replace("_", " ").strip()
-            err = str(alice_response.get("error") or "").strip()
-            if err:
-                return f"I couldn't complete {op}: {err}."
-            return f"I couldn't complete {op}."
-
         if response_type == "knowledge_answer":
             answer = str(alice_response.get("answer") or alice_response.get("content") or "").strip()
             if answer:
@@ -1479,14 +1224,6 @@ class ALICE:
             if question:
                 return f"I need one concrete fact target to answer: {question}"
             return "I need a specific fact-focused question to answer directly."
-
-        if response_type == "operation_status":
-            status = str(alice_response.get("status") or "in progress").strip().lower()
-            detail = str(alice_response.get("detail") or "").strip()
-            msg = f"Status: {status}."
-            if detail:
-                msg += f" {detail}"
-            return msg
 
         if response_type == "location_report":
             location_known = bool(alice_response.get("location_known"))
@@ -1648,123 +1385,6 @@ class ALICE:
                 return f"Bring {item_text}{scope_phrase}; {reason}{place}."
             return f"You likely do not need {item_text}{scope_phrase}; {reason}{place}."
 
-        if response_type == "weather_prediction":
-            answer = alice_response.get("answer", "").capitalize()
-            condition = _display_condition(alice_response.get("condition", ""))
-            return f"{answer}. Current condition: {condition}." if condition else f"{answer}."
-
-        if response_type == "weather_forecast":
-            from datetime import datetime as _dt, timedelta as _td
-
-            forecast = alice_response.get("forecast", [])
-            location = alice_response.get("location", "")
-            raw_input = alice_response.get("user_input", "").lower()
-
-            if not forecast:
-                return "I don't have forecast data available right now."
-
-            wants_weekend = "weekend" in raw_input
-            wants_tomorrow = "tomorrow" in raw_input
-            _days_kw = {
-                "monday": 0,
-                "tuesday": 1,
-                "wednesday": 2,
-                "thursday": 3,
-                "friday": 4,
-                "saturday": 5,
-                "sunday": 6,
-            }
-            wants_specific_day = next((d for d in _days_kw if d in raw_input), None)
-
-            loc_str = f" for {location}" if location else ""
-            today = _dt.now().date()
-
-            def _day_label(d) -> str:
-                is_today = d == today
-                is_tmr = d == today + _td(days=1)
-                return "Today" if is_today else ("Tomorrow" if is_tmr else d.strftime("%A"))
-
-            def _fmt_table_row(d, day: dict) -> str:
-                label = _day_label(d)
-                high = day.get("high")
-                low = day.get("low")
-                cond = _display_condition(day.get("condition"), title_case=True)
-                temp = (
-                    f"{_format_temp(low)}° to {_format_temp(high)}°C" if (high is not None and low is not None) else "—"
-                )
-                return f"| {label} | {cond} | {temp} |"
-
-            TABLE_SEP = "| --- | --- | --- |"
-
-            # ── Specific weekday ─────────────────────────────────────────────
-            if wants_specific_day:
-                target_wd = _days_kw[wants_specific_day]
-                for day in forecast:
-                    try:
-                        d = _dt.strptime(day.get("date", ""), "%Y-%m-%d").date()
-                        if d.weekday() == target_wd:
-                            high, low = day.get("high"), day.get("low")
-                            cond = _display_condition(day.get("condition"), title_case=True)
-                            temp = (
-                                f"{_format_temp(low)}° to {_format_temp(high)}°C"
-                                if (high is not None and low is not None)
-                                else ""
-                            )
-                            return f"**{_day_label(d)}{loc_str}** {cond}{', ' + temp if temp else ''}"
-                    except Exception:
-                        pass
-
-            # ── Weekend: two-row table ───────────────────────────────────────
-            if wants_weekend:
-                weekend_days = []
-                for day in forecast:
-                    try:
-                        d = _dt.strptime(day.get("date", ""), "%Y-%m-%d").date()
-                        if d.weekday() in (5, 6):
-                            weekend_days.append((d, day))
-                    except Exception:
-                        pass
-                if weekend_days:
-                    lines = [
-                        f"**Weekend forecast{loc_str}**",
-                        "",
-                        "| Day | Condition | Temp |",
-                        TABLE_SEP,
-                    ]
-                    for d, day in weekend_days:
-                        lines.append(_fmt_table_row(d, day))
-                    return "\n".join(lines)
-
-            # ── Tomorrow: single bold line ───────────────────────────────────
-            if wants_tomorrow:
-                tomorrow_str = (today + _td(days=1)).strftime("%Y-%m-%d")
-                for day in forecast:
-                    if day.get("date") == tomorrow_str:
-                        d = _dt.strptime(tomorrow_str, "%Y-%m-%d").date()
-                        high, low = day.get("high"), day.get("low")
-                        cond = _display_condition(day.get("condition"), title_case=True)
-                        temp = (
-                            f"{_format_temp(low)}° to {_format_temp(high)}°C"
-                            if (high is not None and low is not None)
-                            else ""
-                        )
-                        return f"**Tomorrow{loc_str}** {cond}{', ' + temp if temp else ''}"
-
-            # ── Full 7-day table ─────────────────────────────────────────────
-            lines = [
-                f"**7-day forecast{loc_str}**",
-                "",
-                "| Day | Condition | Temp |",
-                TABLE_SEP,
-            ]
-            for day in forecast[:7]:
-                try:
-                    d = _dt.strptime(day.get("date", ""), "%Y-%m-%d").date()
-                    lines.append(_fmt_table_row(d, day))
-                except Exception:
-                    pass
-            return "\n".join(lines) if len(lines) > 4 else f"Forecast{loc_str} available but couldn't be formatted."
-
         # ── Capability ───────────────────────────────────────────────────────
         if response_type == "capability_answer":
             can_do = alice_response.get("can_do", False)
@@ -1776,25 +1396,6 @@ class ALICE:
             if ops:
                 base += f" Available operations: {', '.join(ops[:5])}."
             return base
-
-        # ── Self-analysis / code ─────────────────────────────────────────────
-        if response_type == "self_analysis":
-            total_files = alice_response.get("total_files", 0)
-            analyzed = alice_response.get("analyzed_files", [])
-            points = alice_response.get("architecture_points", [])
-            lines = [f"I have {total_files} Python files in my codebase."]
-            for f in analyzed[:5]:
-                lines.append(f"  • {f['path']}: {f.get('lines', 0)} lines")
-            for p in points[:5]:
-                lines.append(f"  • {p}")
-            return "\n".join(lines)
-
-        if response_type == "code_explanation":
-            name = alice_response.get("file_name", "file")
-            lines = alice_response.get("lines", 0)
-            module_type = alice_response.get("module_type", "code")
-            preview = alice_response.get("content_preview", "")[:200]
-            return f"{name} is a {module_type} file with {lines} lines.{(' ' + preview) if preview else ''}"
 
         if response_type == "codebase_listing":
             heading = str(alice_response.get("heading") or "My codebase")
@@ -1900,15 +1501,6 @@ class ALICE:
             logger.info(f"[ALICE] Strict mode fallback for '{response_type}'")
             if response_type == "knowledge_answer":
                 return "I can answer in strict mode, but I need a more specific target question."
-            if response_type == "reasoning_result":
-                return str(alice_response.get("conclusion") or "Reasoning complete.")
-            if response_type == "operation_success":
-                op = str(alice_response.get("operation") or "operation").replace("_", " ")
-                return f"Completed: {op}."
-            if response_type == "operation_failure":
-                op = str(alice_response.get("operation") or "operation").replace("_", " ")
-                err = str(alice_response.get("error") or "").strip()
-                return f"Failed: {op}. {err}".strip()
             if response_type == "clarification_prompt":
                 if self._is_answerability_direct_question(user_input):
                     return self._answerability_gate_fallback_response(user_input)
@@ -1943,31 +1535,6 @@ class ALICE:
             else:
                 topic = intent.split(":")[0] if ":" in intent else intent
                 content_str = f"Based on what I've learned about {topic}, I can help with: {question}"
-
-        elif response_type == "reasoning_result":
-            conclusion = alice_response.get("conclusion", "")
-            content_str = f"Conclusion: {conclusion}"
-
-        elif response_type == "operation_success":
-            op = alice_response.get("operation", "operation")
-            details = alice_response.get("details", {})
-            title = (details.get("note_title") or details.get("title", "")) if isinstance(details, dict) else ""
-            title_str = f" '{title}'" if title else ""
-            user_q = alice_response.get("user_question", "")
-            content_str = (
-                f"Action completed successfully: {op.replace('_', ' ')}{title_str}. "
-                f"User asked: '{user_q}'. Confirm this briefly and naturally in one sentence."
-            )
-
-        elif response_type == "operation_failure":
-            op = alice_response.get("operation", "that")
-            error = alice_response.get("error", "")
-            user_q = alice_response.get("user_question", "")
-            error_str = f" Reason: {error}" if error and error not in ("Operation failed", "unknown") else ""
-            content_str = (
-                f"Action failed: {op.replace('_', ' ')}.{error_str} "
-                f"User asked: '{user_q}'. Explain this briefly and naturally, and offer to help in one sentence."
-            )
 
         elif response_type == "weather_advice":
             # Give Ollama the bare facts so it can phrase the advice naturally.
@@ -2175,6 +1742,23 @@ class ALICE:
         )
         return any(cue in response_l for cue in summary_response_cues)
 
+    def _wire_llm_intent_arbiter(self) -> None:
+        """Let the model break ties the phrase rules cannot.
+
+        NLPProcessor asks the model only on low-confidence or ambiguous routes,
+        and never overrides a concrete tool intent. attach_llm_gateway had no
+        caller, so that path never ran and every close call was settled by
+        keyword lists. Under the strict policy the model is not consulted.
+        """
+        nlp = getattr(self, "nlp", None)
+        gateway = getattr(self, "llm_gateway", None)
+        if nlp is None or gateway is None or getattr(self, "strict_no_llm", False):
+            return
+        try:
+            nlp.attach_llm_gateway(gateway)
+        except Exception as exc:
+            logger.warning("LLM intent arbitration unavailable: %s", exc)
+
     def _fallback_from_intent(
         self,
         intent: str,
@@ -2210,8 +1794,10 @@ class ALICE:
                 return routed
         # "I misunderstood that response path" is Alice's own vocabulary, not the
         # user's — it names an internal routing concept to someone who just
-        # asked a question and describes a failure they cannot act on.
-        return "I didn't follow that. Say it once more and I'll answer directly."
+        # asked a question and describes a failure they cannot act on. It used
+        # to add "say it once more and I'll answer directly", a promise nothing
+        # keeps: the same words take the same path to this same line.
+        return "I didn't follow that. Could you put it another way?"
 
     def _prevent_unsolicited_summary(
         self,
@@ -2324,366 +1910,6 @@ class ALICE:
             "result": result.get("result"),
             "all_results": result.get("all_results", {}),
         }
-
-    def _build_llm_context(self, user_input: str, intent: str = "", entities: Dict = None, goal_res=None) -> str:
-        """Build enhanced context for LLM with smart caching and adaptive selection"""
-        # Check cache first
-        cached = self.context_cache.get(user_input, intent or "", entities or {})
-        if cached:
-            self._think("Context cache hit → reusing context")
-            return cached
-
-        # Build all context parts
-        context_parts = []
-        context_types = []
-
-        # 0. ACTIVE GOAL - only when this turn is task-directed
-        if goal_res and goal_res.goal and self._should_attach_goal_context(user_input, intent):
-            goal = goal_res.goal
-            goal_context = f"ACTIVE GOAL: The user is trying to {goal.description}. "
-            goal_context += f"Intent: {goal.intent}. "
-            if goal.entities:
-                # Convert entity values to strings (might be Entity objects)
-                goal_ents = ", ".join(
-                    f"{k}={getattr(v, 'value', v) if hasattr(v, 'value') else str(v)}"
-                    for k, v in list(goal.entities.items())[:3]
-                )
-                goal_context += f"Entities: {goal_ents}. "
-            goal_context += (
-                "Use this goal to understand ambiguous inputs and guide your response to help complete this goal."
-            )
-            context_parts.insert(0, goal_context)  # Put goal first - highest priority
-            context_types.insert(0, "goal")
-            self._think(f"Goal context → {goal.description[:50]}...")
-
-        # A block here used to fire on any input containing "code", "analyze",
-        # "access to" or "can you see", and told the model:
-        #
-        #     "When asked about code access, confirm you have it and offer to
-        #      read/analyze files."
-        #
-        # That is an instruction to talk about looking instead of looking —
-        # written into the prompt, and the exact failure docs/north_star.md names
-        # as this project's recurring bug. Asked what was in a file, Alice would
-        # announce her capabilities and offer to read it.
-        #
-        # The agent loop already advertises list_workspace_files,
-        # read_workspace_file and search_workspace as real tool schemas, and the
-        # persona's tool addendum says a question about her own code is answered
-        # by reading it. A model discovering it can look is strictly better than
-        # one told to say that it can.
-
-        # 0.7. Recent plugin data (e.g., weather from last query)
-        weather_relevant = bool(
-            re.search(
-                r"\b(weather|forecast|temperature|rain|snow|storm|wind|humidity|outside|coat|jacket|umbrella|wear)\b",
-                str(user_input or "").lower(),
-            )
-            or str(intent or "").startswith("weather:")
-        )
-        _live_state = getattr(self, "live_state_service", None) or get_live_state_service()
-        weather_snapshot = _live_state.freshest_weather_snapshot(
-            reasoning_engine=getattr(self, "reasoning_engine", None),
-            world_state_memory=getattr(self, "world_state_memory", None),
-        )
-        if weather_relevant and weather_snapshot and isinstance(weather_snapshot.get("data"), dict):
-            wd = weather_snapshot.get("data", {})
-            weather_context = (
-                f"RECENT WEATHER: In {wd.get('location', 'your area')}, "
-                f"it's {wd.get('temperature')}°C with {wd.get('condition')}. "
-            )
-            weather_context += f"Humidity: {wd.get('humidity')}%, Wind: {wd.get('wind_speed')} km/h. "
-            weather_context += (
-                "Use this when answering questions about going outside, clothing, or weather-related decisions."
-            )
-            context_parts.append(weather_context)
-            context_types.append("recent_weather")
-            self._think(f"Recent weather data included in context (source={weather_snapshot.get('source', 'unknown')})")
-
-        # 1. Personalization
-        personalization = self.context.get_personalization_context()
-        if personalization:
-            context_parts.append(personalization)
-            context_types.append("personalization")
-
-        if self.system_design_response_guard and self.system_design_response_guard.is_architecture_query(user_input):
-            context_parts.append(self.system_design_response_guard.guidance_text())
-            context_types.append("architecture_policy")
-
-        # 1.1 Episodic + semantic recall to preserve continuity on long sessions.
-        if self.episodic_memory_engine:
-            try:
-                episodic_hits = self.episodic_memory_engine.recall_similar(user_input, limit=2)
-                if episodic_hits:
-                    snippets = [
-                        f"- {item.get('intent', 'unknown')}: {str(item.get('user_input', ''))[:90]}"
-                        for item in episodic_hits
-                    ]
-                    context_parts.append("Relevant prior episodes:\n" + "\n".join(snippets))
-                    context_types.append("episodic")
-            except Exception:
-                pass
-        if self.semantic_memory_index:
-            try:
-                semantic_hits = self.semantic_memory_index.search(user_input, limit=2)
-                if semantic_hits:
-                    snippets = [f"- {item.get('text', '')}" for item in semantic_hits]
-                    context_parts.append("Semantic memory matches:\n" + "\n".join(snippets))
-                    context_types.append("semantic")
-            except Exception:
-                pass
-
-        # 2. Advanced contextual understanding
-        if self.advanced_context:
-            advanced_context = self.advanced_context.get_context_for_llm(user_input)
-            if advanced_context:
-                context_parts.append(advanced_context)
-                context_types.append("conversation")
-
-        # 3. Intelligent conversation summarization
-        if self.summarizer:
-            conversation_context = self.summarizer.get_context_summary()
-            if conversation_context:
-                context_parts.append(f"Conversation context: {conversation_context}")
-                context_types.append("conversation")
-
-            detailed_context = self.summarizer.get_detailed_context()
-            if detailed_context.get("frequent_topics"):
-                topics_text = ", ".join(detailed_context["frequent_topics"][:3])
-                context_parts.append(f"Current session topics: {topics_text}")
-                context_types.append("conversation")
-
-        if getattr(self, "conversation_state_tracker", None):
-            state_context = self.conversation_state_tracker.format_for_prompt()
-            if state_context:
-                context_parts.append(state_context)
-                context_types.append("conversation_state")
-
-        if getattr(self, "_internal_reasoning_state", None):
-            try:
-                _rs = self._internal_reasoning_state
-                _lines = [
-                    "Internal reasoning state (system-only):",
-                    f"- user_intent: {_rs.get('user_intent', 'unknown')}",
-                    f"- topic: {_rs.get('topic', 'unknown') or 'unknown'}",
-                    f"- confidence: {float(_rs.get('confidence', 0.0)):.2f}",
-                    f"- intent_plausibility: {float(_rs.get('intent_plausibility', 1.0)):.2f}",
-                    f"- conversation_goal: {_rs.get('conversation_goal', 'general_assistance')}",
-                    f"- user_goal: {_rs.get('user_goal', 'none') or 'none'}",
-                    f"- depth_level: {int(_rs.get('depth_level', 0))}",
-                ]
-                _plan = _rs.get("plan", []) or []
-                if _plan:
-                    _lines.append(f"- plan: {' | '.join(str(p) for p in _plan[:4])}")
-                _scores = _rs.get("decision_scores", {}) or {}
-                if _scores:
-                    _top = sorted(_scores.items(), key=lambda kv: kv[1], reverse=True)[:4]
-                    _lines.append("- decision_scores: " + ", ".join(f"{k}={float(v):.2f}" for k, v in _top))
-                if _rs.get("learning_decision"):
-                    _lines.append(f"- learning_decision: {_rs.get('learning_decision')}")
-                _runtime_controls = _rs.get("runtime_controls", {}) or {}
-                if _runtime_controls:
-                    _lines.append(
-                        "- runtime_controls: "
-                        + ", ".join(
-                            [
-                                f"routing_preference={_runtime_controls.get('routing_preference', 'balanced')}",
-                                f"thinking_depth={int(_runtime_controls.get('thinking_depth', 1) or 1)}",
-                                f"allow_tools={bool(_runtime_controls.get('allow_tools', True))}",
-                                f"max_tool_hops={int(_runtime_controls.get('max_tool_hops', 1) or 1)}",
-                            ]
-                        )
-                    )
-                context_parts.append("\n".join(_lines))
-                context_types.append("reasoning_state")
-            except Exception:
-                pass
-
-        # 3a. Response plan injection (structure constraints for LLM)
-        _rp_data = (getattr(self, "_internal_reasoning_state", {}) or {}).get("response_plan", {})
-        if _rp_data:
-            try:
-                _rp_lines = [
-                    "Response plan (internal):",
-                    f"- type: {_rp_data.get('response_type', 'factual')}",
-                    f"- strategy: {_rp_data.get('strategy', 'answer_directly')}",
-                ]
-                _outline = _rp_data.get("outline", []) or []
-                if _outline:
-                    _rp_lines.append(f"- outline: {' -> '.join(str(o) for o in _outline[:4])}")
-                _rp_constraints = _rp_data.get("constraints", []) or []
-                if _rp_constraints:
-                    _rp_lines.append(f"- constraints: {'; '.join(str(c) for c in _rp_constraints[:4])}")
-                _rp_sections = _rp_data.get("required_sections", []) or []
-                if _rp_sections:
-                    _rp_lines.append(f"- required_sections: {'; '.join(str(s) for s in _rp_sections[:5])}")
-                _rp_depth = int(_rp_data.get("plan_depth", 1) or 1)
-                _rp_lines.append(f"- plan_depth: {_rp_depth}")
-                _goal_ctx = _rp_data.get("goal_context", "")
-                if _goal_ctx:
-                    _rp_lines.append(f"- goal_context: {_goal_ctx}")
-                _fmt = _rp_data.get("format_hint", "")
-                if _fmt:
-                    _rp_lines.append(f"- format: {_fmt}")
-                context_parts.append("\n".join(_rp_lines))
-                context_types.append("response_plan")
-            except Exception:
-                pass
-
-        # 3ab. User response preferences / constraints extracted from utterance
-        _prefs = (getattr(self, "_internal_reasoning_state", {}) or {}).get("response_preferences", {}) or {}
-        if _prefs:
-            try:
-                _plines = [
-                    "Response preferences (internal):",
-                    f"- format: {_prefs.get('format', 'default')}",
-                    f"- detail: {_prefs.get('detail', 'normal')}",
-                ]
-                _constraints = _prefs.get("constraints", []) or []
-                if _constraints:
-                    _plines.append(f"- constraints: {', '.join(str(c) for c in _constraints[:5])}")
-                if _prefs.get("max_words"):
-                    _plines.append(f"- max_words: {int(_prefs.get('max_words'))}")
-                context_parts.append("\n".join(_plines))
-                context_types.append("response_preferences")
-            except Exception:
-                pass
-
-        # 3b. Goal steering injection (keeps response aligned with active goal)
-        if getattr(self, "goal_tracker", None):
-            try:
-                _goal_injection = self.goal_tracker.get_goal_prompt_injection()
-                if _goal_injection:
-                    context_parts.append(_goal_injection)
-                    context_types.append("goal_steering")
-                # Append next-step suggestion when goal is achieved
-                if self.goal_tracker.is_goal_achieved():
-                    _nxt = self.goal_tracker.get_next_step_suggestion()
-                    if _nxt:
-                        context_parts.append(_nxt)
-                        context_types.append("goal_next_step")
-            except Exception:
-                pass
-
-        # 4. Recent conversation summary (fallback)
-        recent_context = self._get_recent_conversation_summary()
-        if recent_context and not self.advanced_context and not self.summarizer:
-            context_parts.append(f"Recent discussion: {recent_context}")
-            context_types.append("conversation")
-
-        # 5. Active context tracking (fallback)
-        if not self.advanced_context:
-            active_context = self._get_active_context()
-            if active_context:
-                context_parts.append(active_context)
-                context_types.append("general")
-
-        # 6. Relevant memories (RAG) - weighted by relevance/recency/confidence/source
-        # Keep memory injection conservative on conversational turns to avoid random replies.
-        _memory_trigger_words = (
-            "remember",
-            "what did we",
-            "what have we",
-            "earlier",
-            "last time",
-            "my preference",
-            "you said",
-        )
-        _is_conversational_turn = intent in {
-            "conversation:ack",
-            "conversation:general",
-            "conversation:help",
-            "conversation:question",
-            "conversation:meta_question",
-            "conversation:goal_statement",
-            "greeting",
-            "farewell",
-            "thanks",
-            "status_inquiry",
-        }
-        _should_fetch_memory = (not _is_conversational_turn and len(user_input.split()) >= 3) or any(
-            trigger in user_input.lower() for trigger in _memory_trigger_words
-        )
-        if _should_fetch_memory:
-            try:
-                _weighted_memories = self.memory.recall_memory_weighted(
-                    user_input,
-                    top_k=3,
-                    min_similarity=0.35,
-                )
-                if _weighted_memories:
-                    _lines = ["Relevant information from memory (weighted):"]
-                    for _i, _m in enumerate(_weighted_memories, 1):
-                        _ts = str(_m.get("timestamp", ""))[:10]
-                        _ws = float(_m.get("weighted_score", 0.0))
-                        _lines.append(f"{_i}. {_m.get('content', '')} (score {_ws:.2f}, from {_ts})")
-                    context_parts.append("\n".join(_lines))
-                    context_types.append("memory")
-            except Exception:
-                memory_context = self.memory.get_context_for_llm(user_input, max_memories=5)
-                if memory_context:
-                    context_parts.append(memory_context)
-                    context_types.append("memory")
-
-        # 7. System capabilities (only if relevant)
-        if intent and any(cap in intent for cap in ["note", "email", "calendar"]):
-            capabilities = self.plugins.get_capabilities()
-            if capabilities:
-                context_parts.append(f"Available capabilities: {', '.join(capabilities[:10])}")
-                context_types.append("capabilities")
-
-        # 8. Notes context injection (Feature #2) — surface relevant note snippets
-        # when the query is notes-related or explicitly asks about personal knowledge.
-        _notes_trigger_words = [
-            "note",
-            "notes",
-            "wrote",
-            "saved",
-            "remember",
-            "wrote down",
-            "reminder",
-            "todo",
-            "task",
-            "idea",
-            "meeting notes",
-        ]
-        if any(w in user_input.lower() for w in _notes_trigger_words):
-            try:
-                notes_plugin = getattr(self.plugins, "_plugin_instances", {}).get("notes")
-                if notes_plugin is None:
-                    # Try iterating over registered plugins
-                    for _p in getattr(self.plugins, "plugins", None) or []:
-                        if hasattr(_p, "get_note_context_snippet"):
-                            notes_plugin = _p
-                            break
-                if notes_plugin is not None and hasattr(notes_plugin, "get_note_context_snippet"):
-                    notes_snippet = notes_plugin.get_note_context_snippet(user_input, max_chars=500)
-                    if notes_snippet:
-                        context_parts.append(notes_snippet)
-                        context_types.append("notes")
-                        self._think("Notes context snippet injected into LLM context")
-            except Exception as _ne:
-                import logging as _log
-
-                _log.getLogger(__name__).debug(f"Notes context injection skipped: {_ne}")
-
-        # Adaptive selection - only include relevant context
-        if self.context_selector and context_parts:
-            optimized = self.context_selector.select_relevant_context(
-                user_input=user_input,
-                intent=intent,
-                entities=entities or {},
-                all_context_parts=context_parts,
-                context_types=context_types,
-            )
-            # Cache the optimized context
-            self.context_cache.put(user_input, intent or "", entities or {}, optimized)
-            return optimized
-
-        # Fallback to all context if selector not available
-        full_context = "\n\n".join(context_parts)
-        self.context_cache.put(user_input, intent or "", entities or {}, full_context)
-        return full_context
 
     def _think(self, msg: str) -> None:
         """Emit a thinking-step line when debug mode is on (dev mode)."""
@@ -4617,24 +3843,6 @@ class ALICE:
 
         return None
 
-    def _should_attach_goal_context(self, user_input: str, intent: str) -> bool:
-        """Attach active-goal context only for task-directed turns."""
-        conversational_intents = {
-            "conversation:general",
-            "conversation:ack",
-            "conversation:help",
-            "conversation:question",
-            "conversation:meta_question",
-            "conversation:goal_statement",
-            "greeting",
-            "farewell",
-            "thanks",
-            "status_inquiry",
-        }
-        if intent in conversational_intents:
-            return self._has_explicit_action_cue(user_input)
-        return True
-
     def _is_explicit_greeting_input(self, user_input: str) -> bool:
         """Return True only when the utterance clearly looks like a greeting."""
         if not user_input:
@@ -6287,48 +5495,6 @@ class ALICE:
                 return response
         raise RuntimeError("Contract pipeline unavailable. Check runtime_boundaries initialization in ALICE.__init__.")
 
-    def _get_recent_conversation_summary(self) -> str:
-        """Get a summary of the last few conversation exchanges"""
-        if not self.conversation_summary:
-            return ""
-
-        # Get last 3 exchanges
-        recent = self.conversation_summary[-3:]
-        summary_parts = []
-
-        for exchange in recent:
-            # Create concise summary
-            user_text = exchange["user"][:50] + "..." if len(exchange["user"]) > 50 else exchange["user"]
-            summary_parts.append(f"User asked: {user_text}")
-
-        return " | ".join(summary_parts)
-
-    def _get_active_context(self) -> str:
-        """Get currently active context (email lists, pending actions, etc.)"""
-        context_parts = []
-
-        # Track email context
-        if self.last_email_list:
-            num_emails = sum(1 for e in self.last_email_list if e is not None)
-            if num_emails > 0:
-                context_parts.append(f"User is viewing {num_emails} emails from their inbox")
-
-        # Track pending actions
-        if self.pending_action:
-            context_parts.append(f"In progress: {self.pending_action.replace('_', ' ')}")
-
-        # Track referenced items
-        if self.referenced_items:
-            refs = ", ".join(f"{k}: {v}" for k, v in list(self.referenced_items.items())[-3:])
-            context_parts.append(f"Recently referenced: {refs}")
-
-        # Track topics
-        if self.conversation_topics:
-            topics = ", ".join(self.conversation_topics[-3:])
-            context_parts.append(f"Current topics: {topics}")
-
-        return " | ".join(context_parts) if context_parts else ""
-
     # Session state lives in JSON, not pickle: unpickling executes whatever the
     # file says to, and in the Docker image data/ is a bind mount.
     CONVERSATION_STATE_PATH = "data/conversation_state.json"
@@ -6350,6 +5516,15 @@ class ALICE:
                     self.conversation_topics = list(state["conversation_topics"])[-5:]
                 if "referenced_items" in state:
                     self.referenced_items = state["referenced_items"]
+                llm = getattr(self, "llm", None)
+                if llm is not None and isinstance(state.get("llm_history"), list):
+                    llm.conversation_history = [
+                        {"role": str(turn["role"]), "content": str(turn["content"])}
+                        for turn in state["llm_history"]
+                        if isinstance(turn, dict)
+                        and turn.get("role") in {"user", "assistant"}
+                        and isinstance(turn.get("content"), str)
+                    ]
                 if state.get("conversation_state_tracker") and getattr(self, "conversation_state_tracker", None):
                     self.conversation_state_tracker.load_state(state["conversation_state_tracker"])
 
@@ -6387,6 +5562,13 @@ class ALICE:
                 ),
                 "timestamp": datetime.now().isoformat(),
             }
+            # The transcript the model replays to itself. It lived only in
+            # memory, so every restart began at turn zero and she could not say
+            # what you were doing an hour ago. Privacy mode keeps it off disk.
+            llm = getattr(self, "llm", None)
+            if llm is not None and not getattr(self, "privacy_mode", False):
+                keep = int(getattr(getattr(llm, "config", None), "max_history", 30) or 30)
+                state["llm_history"] = list(getattr(llm, "conversation_history", []) or [])[-keep:]
             save_json_atomic(self.CONVERSATION_STATE_PATH, state)
 
             # Persist adaptive routing weights for cumulative learning
@@ -6490,36 +5672,6 @@ class ALICE:
                 except Exception as _co_err:
                     logger.debug(f"[CognitiveOrchestrator] {_co_err}")
 
-            if self.episodic_memory_engine:
-                self.episodic_memory_engine.add_episode(
-                    user_input=user_input,
-                    intent=intent,
-                    response=response,
-                    entities=entities or {},
-                )
-                self._episodic_turn_counter += 1
-
-            if self.semantic_memory_index:
-                _doc_id = f"turn-{int(time.time() * 1000)}"
-                _doc_text = f"{intent} {user_input} {response[:240]}"
-                self.semantic_memory_index.add(_doc_id, _doc_text)
-
-            if self.cross_session_pattern_detector:
-                self.cross_session_pattern_detector.observe(intent)
-
-            if (
-                self.memory_consolidator
-                and self.episodic_memory_engine
-                and self._episodic_turn_counter > 0
-                and self._episodic_turn_counter % 15 == 0
-            ):
-                _episodes = self.episodic_memory_engine.recall_recent(limit=30)
-                _consolidated = self.memory_consolidator.consolidate(_episodes)
-                self._internal_reasoning_state = {
-                    **(getattr(self, "_internal_reasoning_state", {}) or {}),
-                    "memory_consolidation": _consolidated,
-                }
-
             # Process with unified context engine
             if self.context:
                 turn = self.context.process_turn(
@@ -6557,20 +5709,6 @@ class ALICE:
                     entities=entity_list,
                     sentiment=sentiment,
                 )
-
-            # Extract and store entity relationships
-            if self.relationship_tracker:
-                try:
-                    # Extract relationships from user input
-                    relationships = self.relationship_tracker.process_text(user_input)
-                    logger.debug(f"Extracted {len(relationships)} relationships from user input")
-
-                    # Also process assistant response for relationship context
-                    if response and len(response) < 500:  # Only process shorter responses
-                        assistant_relationships = self.relationship_tracker.process_text(response)
-                        logger.debug(f"Extracted {len(assistant_relationships)} relationships from assistant response")
-                except Exception as e:
-                    logger.error(f"Error extracting relationships: {e}")
 
             # Add to conversation summary (keep last 10)
             self.conversation_summary.append(
@@ -6745,12 +5883,11 @@ class ALICE:
             print("   /summary   - Get conversation summary")
             print("   /context   - Show current context")
             print("   /topics    - List conversation topics")
-            print("   /entities  - Show tracked entities")
-            print("   /relationships - Show entity relationships")
             print()
             print("Debug Commands:")
             print("   /correct   - Correct my last response")
             print("   /autolearn - Show automated learning audit report")
+            print("   /report    - Show routing weak spots from the eval log")
 
             # Proactive morning briefing
             if getattr(self, "proactive_assistant", None):
@@ -7008,8 +6145,6 @@ class ALICE:
             print("   /summary           - Get conversation summary")
             print("   /context           - Show current context")
             print("   /topics            - List conversation topics")
-            print("   /entities          - Show tracked entities")
-            print("   /relationships     - Show entity relationships")
             print()
             print("Memory Management:")
             print("   /mem-list [type]   - List memories (types: episodic, semantic, procedural, document)")
@@ -7033,6 +6168,7 @@ class ALICE:
             print("   /realtime-status   - Show continuous learning metrics and velocity")
             print("   /formulation       - Show response formulation learning progress")
             print("   /autolearn [days]  - Show automated learning audit report (default: 7 days)")
+            print("   /report            - Show routing weak spots from the eval log")
 
         elif cmd in {"/exit", "/quit"}:
             farewell = self._get_farewell()
@@ -7046,14 +6182,14 @@ class ALICE:
             if self.speech:
                 self.voice_enabled = not self.voice_enabled
                 status = "enabled" if self.voice_enabled else "disabled"
-                print(f"\n[OK] Voice mode {status}")
+                print(f"\nVoice mode {status}")
             else:
-                print("\n[ERROR] Voice engine not available")
+                print("\nVoice engine not available")
 
         elif cmd == "/clear":
             self.llm.clear_history()
             self.context.clear_short_term_memory()
-            print("\n[OK] Conversation history cleared")
+            print("\nConversation history cleared")
 
         elif cmd == "/memory":
             stats = self.memory.get_statistics()
@@ -7086,7 +6222,7 @@ class ALICE:
                 country = location_parts[1].strip() if len(location_parts) > 1 else None
                 self.context.user_prefs.set_location(city, country)
                 self.context.save_context()
-                print(f"\n[OK] Location set to: {self.context.user_prefs.location}")
+                print(f"\nLocation set to: {self.context.user_prefs.location}")
             else:
                 current = self.context.user_prefs.location or "Not set"
                 print(f"\nCurrent location: {current}")
@@ -7095,33 +6231,29 @@ class ALICE:
             self._save_conversation_state()
             self.context.save_context()
             self.memory._save_memories()
-            print("\n[OK] Conversation state saved successfully")
+            print("\nConversation state saved successfully")
 
         elif cmd == "/summary":
             if self.summarizer:
                 try:
                     summary_text = self.summarizer.get_conversation_summary()
                     print("\n Conversation Summary:")
-                    print("=" * 50)
                     print(summary_text)
-                    print("=" * 50)
-                except Exception as e:
-                    print(f"\n[ERROR] Failed to get summary: {e}")
+                except Exception:
+                    print("\nI couldn't get the summary just now.")
             else:
-                print("\n[ERROR] Conversation summarizer not available")
+                print("\nConversation summarizer not available")
 
         elif cmd == "/context":
             if self.summarizer:
                 try:
                     context_summary = self.summarizer.get_context_summary()
                     print("\n Current Context:")
-                    print("=" * 50)
                     print(context_summary)
-                    print("=" * 50)
-                except Exception as e:
-                    print(f"\n[ERROR] Failed to get context: {e}")
+                except Exception:
+                    print("\nI couldn't get the context just now.")
             else:
-                print("\n[ERROR] Conversation summarizer not available")
+                print("\nConversation summarizer not available")
 
         elif cmd == "/topics":
             if self.summarizer:
@@ -7129,67 +6261,15 @@ class ALICE:
                     context = self.summarizer.get_detailed_context()
                     topics = context.get("frequent_topics", [])
                     print("\nConversation Topics:")
-                    print("=" * 50)
                     if topics:
                         for i, topic in enumerate(topics, 1):
                             print(f"   {i}. {topic.title()}")
                     else:
                         print("   No topics identified yet.")
-                    print("=" * 50)
-                except Exception as e:
-                    print(f"\n[ERROR] Failed to get topics: {e}")
+                except Exception:
+                    print("\nI couldn't get the topics just now.")
             else:
-                print("\n[ERROR] Conversation summarizer not available")
-
-        elif cmd == "/entities":
-            if self.relationship_tracker:
-                try:
-                    stats = self.relationship_tracker.get_statistics()
-                    print("\n Tracked Entities:")
-                    print("=" * 50)
-                    print(f"Total entities: {stats['total_entities']}")
-
-                    if stats["most_connected_entities"]:
-                        print("\nMost connected entities:")
-                        for entity, count in stats["most_connected_entities"]:
-                            print(f"   • {entity.title()}: {count} connections")
-
-                    if stats["entity_types"]:
-                        print(f"\nEntity types: {', '.join(stats['entity_types'].keys())}")
-
-                    print("=" * 50)
-                except Exception as e:
-                    print(f"\n[ERROR] Failed to get entities: {e}")
-            else:
-                print("\n[ERROR] Entity relationship tracker not available")
-
-        elif cmd == "/relationships":
-            if self.relationship_tracker:
-                try:
-                    stats = self.relationship_tracker.get_statistics()
-                    print("\nEntity Relationships:")
-                    print("=" * 50)
-                    print(f"Total relationships: {stats['total_relationships']}")
-
-                    if stats["relationship_types"]:
-                        print("\nRelationship types:")
-                        for rel_type, count in stats["relationship_types"].items():
-                            print(f"   • {rel_type.replace('_', ' ').title()}: {count}")
-
-                    if stats["recent_relationships"]:
-                        print("\nRecent relationships:")
-                        for rel in stats["recent_relationships"][:5]:
-                            source = rel["source_entity"].title()
-                            target = rel["target_entity"].title()
-                            rel_type = rel["relationship_type"].replace("_", " ")
-                            confidence = rel["confidence"]
-                            print(f"   • {source} {rel_type} {target} (confidence: {confidence:.2f})")
-
-                    print("=" * 50)
-                except Exception as e:
-                    print(f"\n[ERROR] Failed to get relationships: {e}")
-            else:
-                print("\n[ERROR] Entity relationship tracker not available")
+                print("\nConversation summarizer not available")
 
         elif cmd.startswith("/mem-list"):
             # List memories with optional filter by type
@@ -7202,7 +6282,7 @@ class ALICE:
                 "procedural",
                 "document",
             ]:
-                print(f"\n[ERROR] Invalid memory type: {memory_type}")
+                print(f"\nInvalid memory type: {memory_type}")
                 print("   Valid types: episodic, semantic, procedural, document")
                 return
 
@@ -7221,7 +6301,6 @@ class ALICE:
 
             title = f"{'All' if not memory_type else memory_type.title()} Memories"
             print(f"\n{title}:")
-            print("=" * 70)
 
             if not memories:
                 print("   No memories found.")
@@ -7237,20 +6316,17 @@ class ALICE:
                 if len(memories) > 20:
                     print(f"   ... and {len(memories) - 20} more memories")
 
-            print("=" * 70)
-
         elif cmd.startswith("/mem-search"):
             # Search memories by content
             parts = command.split(maxsplit=1)
             if len(parts) < 2:
-                print("\n[ERROR] Usage: /mem-search <query>")
+                print("\nUsage: /mem-search <query>")
                 return
 
             query = parts[1].strip()
             results = self.memory.recall_memory(query, top_k=10, min_similarity=0.5)
 
             print(f"\n Memory Search Results for: '{query}'")
-            print("=" * 70)
 
             if not results:
                 print("   No matching memories found.")
@@ -7268,13 +6344,11 @@ class ALICE:
                     print(f"      Tags: {', '.join(result['tags']) if result['tags'] else 'none'}")
                     print()
 
-            print("=" * 70)
-
         elif cmd.startswith("/mem-delete"):
             # Delete memory by ID
             parts = command.split(maxsplit=1)
             if len(parts) < 2:
-                print("\n[ERROR] Usage: /mem-delete <memory_id>")
+                print("\nUsage: /mem-delete <memory_id>")
                 return
 
             memory_id = parts[1].strip()
@@ -7303,7 +6377,7 @@ class ALICE:
                         self.memory.vector_store.save(self.memory.vector_store_path)
 
                         deleted = True
-                        print(f"\n[OK] Deleted {memory_type} memory:")
+                        print(f"\nDeleted {memory_type} memory:")
                         print(f"   ID: {memory_id}")
                         print(f"   Content: {content_preview}")
                         break
@@ -7312,7 +6386,7 @@ class ALICE:
                     break
 
             if not deleted:
-                print(f"\n[ERROR] Memory not found: {memory_id}")
+                print(f"\nMemory not found: {memory_id}")
 
         elif cmd == "/patterns":
             # Show proposed patterns awaiting approval
@@ -7322,12 +6396,11 @@ class ALICE:
 
                     self.pattern_miner = PatternMiner()
                 except Exception as e:
-                    print(f"\n[ERROR] Pattern miner not available: {e}")
+                    print(f"\nPattern miner not available: {e}")
                     return
 
             stats = self.pattern_miner.get_pattern_stats()
             print("\n[PATTERNS] Pattern Learning System:")
-            print("=" * 70)
             print(f"   Total Proposals: {stats['total_proposals']}")
             print(f"   Pending Approval: {stats['pending_approval']}")
             print(f"   Approved: {stats['approved']}")
@@ -7354,7 +6427,7 @@ class ALICE:
                 if len(stats["pending_patterns"]) > 5:
                     print(f"\n   ... and {len(stats['pending_patterns']) - 5} more pending patterns")
             else:
-                print("   [OK] No pending patterns. All proposed patterns have been reviewed.")
+                print("   No pending patterns. All proposed patterns have been reviewed.")
 
             print("\n" + "=" * 70)
 
@@ -7362,7 +6435,7 @@ class ALICE:
             # Approve a specific pattern
             parts = command.split(maxsplit=2)
             if len(parts) < 3:
-                print("\n[ERROR] Usage: /patterns approve <pattern_id>")
+                print("\nUsage: /patterns approve <pattern_id>")
                 return
 
             pattern_id = parts[2].strip()
@@ -7373,15 +6446,15 @@ class ALICE:
                 self.pattern_miner = PatternMiner()
 
             if self.pattern_miner.approve_pattern(pattern_id):
-                print(f"\n[OK] Pattern {pattern_id} approved and will be used for future interactions")
+                print(f"\nPattern {pattern_id} approved and will be used for future interactions")
             else:
-                print(f"\n[ERROR] Pattern {pattern_id} not found")
+                print(f"\nPattern {pattern_id} not found")
 
         elif cmd.startswith("/patterns reject"):
             # Reject a specific pattern
             parts = command.split(maxsplit=2)
             if len(parts) < 3:
-                print("\n[ERROR] Usage: /patterns reject <pattern_id>")
+                print("\nUsage: /patterns reject <pattern_id>")
                 return
 
             pattern_id = parts[2].strip()
@@ -7394,7 +6467,7 @@ class ALICE:
             if self.pattern_miner.reject_pattern(pattern_id):
                 print(f"\n\u2713 Pattern {pattern_id} rejected")
             else:
-                print(f"\n[ERROR] Pattern {pattern_id} not found")
+                print(f"\nPattern {pattern_id} not found")
 
         elif cmd.startswith("/correct"):
             self._handle_correction_command(cmd)
@@ -7414,6 +6487,14 @@ class ALICE:
         elif cmd == "/autolearn" or cmd.startswith("/autolearn "):
             self._handle_autolearn_command(command)
 
+        elif cmd == "/report":
+            try:
+                from ai.learning.failure_eval_converter import get_failure_eval_converter
+
+                print("\n" + get_failure_eval_converter().weak_spot_report())
+            except Exception:
+                print("\nI couldn't build the routing report just now.")
+
         elif cmd.startswith("/autonomous"):
             self._handle_autonomous_command(command)
 
@@ -7424,7 +6505,7 @@ class ALICE:
             self._handle_operator_status_command()
 
         else:
-            print(f"\n[ERROR] Unknown command: {command}")
+            print(f"\nUnknown command: {command}")
             print("   Type /help for available commands")
 
     def _get_greeting(self) -> str:
@@ -8481,9 +7562,12 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
     def _formulate_freshness_guard_response(self, user_input: str) -> str:
         payload = self._freshness_required_payload(user_input)
-        return (
-            "This needs live sources right now, and I cannot verify it from model memory alone. "
-            f"If you want, I can fetch current updates for: {payload.get('domain', 'current events')}."
+        from ai.core.response_formulator import _no_live_source_sentence
+
+        return _no_live_source_sentence(
+            str(payload.get("domain") or "current events"),
+            str(payload.get("source_requirement") or "live sources"),
+            str(payload.get("blocked_source") or "model memory"),
         )
 
     def _resolve_runtime_user_name(self) -> str:
@@ -8662,6 +7746,8 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         if self.speech:
             self.speech.stop_listening()
 
+        self._wait_for_classifier_warm()
+
         self.running = False
         logger.info("[OK] ALICE shutdown complete")
 
@@ -8674,7 +7760,7 @@ def main():
     parser = argparse.ArgumentParser(description="A.L.I.C.E - Advanced AI System")
     parser.add_argument("--voice", action="store_true", help="Enable voice interaction")
     parser.add_argument("--voice-only", action="store_true", help="Run in voice-only mode")
-    parser.add_argument("--model", default="llama3", help="LLM model to use")
+    parser.add_argument("--model", default=None, help="Ollama model (default: $ALICE_MODEL, else llama3.1:8b)")
     parser.add_argument("--name", default="User", help="Your name")
 
     args = parser.parse_args()

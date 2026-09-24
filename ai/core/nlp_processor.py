@@ -224,6 +224,7 @@ _WEATHER_FORECAST_TERMS: frozenset = frozenset(
 _WEATHER_EVENT_TERMS: frozenset = frozenset({"snow", "rain", "storm", "drizzle", "thunder"})
 _WEATHER_FUTURE_TERMS: frozenset = frozenset({"will", "gonna", "going", "chance", "expect", "is"})
 _SYSTEM_TERMS: frozenset = frozenset({"system", "cpu", "memory", "disk", "battery", "status"})
+_SYSTEM_WORDS: frozenset = frozenset({"system", "status"})
 _NON_WEATHER_TARGET_TERMS: frozenset = frozenset(
     {
         "note",
@@ -332,12 +333,34 @@ def is_casual_weather_context(text: str, actionable_clause: str) -> bool:
 # ── PHASE 1 pattern sets ──────────────────────────────────────────────────────
 # System
 _P1_SYSTEM_STATUS: frozenset = frozenset({"status", "doing", "health", "how", "report", "info"})
-_P1_SYSTEM_RESOURCES: frozenset = frozenset(
-    {"cpu", "memory", "ram", "disk", "battery", "gpu", "processes", "ports", "network"}
+# A resource question is about this machine only when something anchors it
+# here: "my gpu", "disk space", "ports listening", "how much ram do I have".
+# The words used to be matched as substrings next to verbs like "is" (inside
+# "this" and "list") and "how much", so "how much memory does a python dict
+# use" was answered with a system status report. "my memory" is left out: that
+# is Alice's memory, not the RAM.
+_P1_RESOURCE_RE = re.compile(r"\b(?:cpu|memory|ram|disk|battery|gpu|processes|ports|network)\b")
+_P1_MACHINE_ANCHOR_RE = re.compile(
+    r"\b(?:my|this|your|the system'?s?|the computer'?s?|the machine'?s?)\s+(?:\w+\s+)?"
+    r"(?:cpu|ram|disk|battery|gpu|processes|ports|network)\b"
+    r"|\b(?:cpu|memory|ram|disk|gpu|battery)\s+(?:usage|load|space|level|temp|temperature|free|left)\b"
+    r"|\b(?:ports?|processes)\s+(?:are\s+)?(?:open|listening|running)\b"
+    r"|\b(?:cpu|memory|ram|disk|gpu|battery)\b.*\bdo i have\b"
 )
-_P1_SYSTEM_RESOURCE_VERBS: frozenset = frozenset(
-    {"usage", "available", "how much", "low", "check", "is", "running", "listening", "open"}
+_P1_CODE_CONTEXT_RE = re.compile(
+    r"\b(?:python|javascript|typescript|java|rust|golang|dict|dictionary|list|array|tuple|object|"
+    r"variable|function|class|leak|model|transformer|neural|layer|algorithm|program|code)\b"
 )
+
+
+def _is_machine_resource_query(text_lower: str) -> bool:
+    return (
+        bool(_P1_RESOURCE_RE.search(text_lower))
+        and bool(_P1_MACHINE_ANCHOR_RE.search(text_lower))
+        and not _P1_CODE_CONTEXT_RE.search(text_lower)
+    )
+
+
 _P1_SYSTEM_DIRECT: frozenset = frozenset(
     {
         "system status",
@@ -446,6 +469,31 @@ _P1_REMINDER_SET: tuple = (
     "notify me when",
     "don't let me forget",
 )
+# "remind me why we chose SQLite" asks her to recall something; it is not a
+# request to schedule anything. Both reminder overrides fired on the bare
+# substring "remind me", so recall questions went to reminder:set.
+_REMIND_ME_RECALL_RE = re.compile(r"\bremind me\s+(?:again\s+)?(?:why|what|how|who|where|which|whether)\b")
+_REMIND_ME_ABOUT_RE = re.compile(r"\bremind me\s+(?:about|of)\b")
+_TIME_MARKER_RE = re.compile(
+    r"\b(?:at\s+\d|in\s+\d+|in\s+(?:an?|one|two|five|ten)\s+(?:minute|hour)|tomorrow|tonight|today|"
+    r"this (?:morning|afternoon|evening)|next (?:week|month)|on (?:mon|tue|wed|thu|fri|sat|sun)\w*|"
+    r"every (?:day|morning|week)|\d{1,2}(?::\d{2})?\s*(?:am|pm))\b"
+)
+
+
+def _is_recall_request(text_lower: str) -> bool:
+    return bool(
+        _REMIND_ME_RECALL_RE.search(text_lower)
+        or (_REMIND_ME_ABOUT_RE.search(text_lower) and not _TIME_MARKER_RE.search(text_lower))
+    )
+
+
+def _is_reminder_request(text_lower: str) -> bool:
+    if not any(phrase in text_lower for phrase in _P1_REMINDER_SET + ("do not let me forget", "dont let me forget")):
+        return False
+    return not _is_recall_request(text_lower)
+
+
 _P1_REMINDER_LIST: tuple = (
     "my reminders",
     "what reminders",
@@ -1662,6 +1710,9 @@ class NLPProcessor:
             "notse": "notes",
             "emial": "email",
             "calender": "calendar",
+            "lsit": "list",
+            "ntoe": "note",
+            "ntoes": "notes",
         }
         self._noisy_channel_lexicon = {
             *(self.command_vocabulary.get("verbs", set())),
@@ -1976,10 +2027,14 @@ class NLPProcessor:
 
     def _closest_lexicon_term(self, token: str, max_distance: int = 1) -> Optional[str]:
         """Find likely command lexicon correction for noisy input tokens."""
-        if not token or not token.isalpha() or len(token) < 4:
-            return None
         if token in self._noisy_channel_lexicon:
             return token
+        # Four- and five-letter words sit one edit away from each other all the
+        # time: "talk" became "task" and "lost" became "list", which destroyed
+        # the cue "what did we talk about" is routed on. Short typos go through
+        # the explicit _typo_replacements map instead.
+        if not token or not token.isalpha() or len(token) < 6:
+            return None
 
         def _is_adjacent_transposition(source: str, target: str) -> bool:
             if len(source) != len(target):
@@ -3066,7 +3121,12 @@ class NLPProcessor:
         scores["email"] += 1.2 * sum(token_counts[word] for word in _EMAIL_TERMS)
         scores["calendar"] += 1.2 * sum(token_counts[word] for word in _CALENDAR_TERMS)
         scores["weather"] += 1.35 * sum(token_counts[word] for word in _WEATHER_TERMS)
-        scores["system"] += 1.2 * sum(token_counts[word] for word in _SYSTEM_TERMS)
+        # "disk", "battery" and "memory" are about this machine only when the
+        # sentence binds them to it ("my battery", "disk space"). Unbound, they
+        # sent "is the disk scheduler in linux still CFQ?" and "the battery on my
+        # bike light" to a CPU/RAM readout.
+        system_terms = _SYSTEM_TERMS if _is_machine_resource_query(" ".join(normalized)) else _SYSTEM_WORDS
+        scores["system"] += 1.2 * sum(token_counts[word] for word in system_terms)
         if _WEATHER_FORECAST_TERMS & normalized_set:
             scores["weather"] += 0.8
         if _WEATHER_EVENT_TERMS & normalized_set and _WEATHER_FUTURE_TERMS & normalized_set:
@@ -3396,20 +3456,7 @@ class NLPProcessor:
             # no context-based short-query logic can shadow reminder intents. ──
             _tl = normalized_text.lower()
             _reminder_intent = None
-            if any(
-                phrase in _tl
-                for phrase in [
-                    "remind me",
-                    "set a reminder",
-                    "add a reminder",
-                    "create a reminder",
-                    "alert me",
-                    "notify me when",
-                    "don't let me forget",
-                    "do not let me forget",
-                    "dont let me forget",
-                ]
-            ):
+            if _is_reminder_request(_tl):
                 _reminder_intent = "reminder:set"
             elif any(
                 phrase in _tl
@@ -3449,6 +3496,18 @@ class NLPProcessor:
                 )
                 intent = _memory_test_intent
                 intent_confidence = 0.93
+            elif _is_recall_request(_tl):
+                # "remind me why/what/about ..." is a question for her, not for a
+                # plugin. The classifier sent these to notes:create.
+                route = RouteDecision(
+                    intent="conversation:question",
+                    confidence=0.85,
+                    plugin="",
+                    action="",
+                    trace={"source": "recall_question_override"},
+                )
+                intent = "conversation:question"
+                intent_confidence = 0.85
             elif _reminder_intent:
                 route = RouteDecision(
                     intent=_reminder_intent,
@@ -4474,14 +4533,7 @@ class NLPProcessor:
             return "system:status", 0.95
         if "system" in text_lower and any(word in text_lower for word in _P1_SYSTEM_STATUS):
             return "system:status", 0.9
-        # Resource check: "how is/is my + cpu/memory/disk/battery"
-        if any(word in text_lower for word in ["how is", "is my", "is the"]) and any(
-            word in text_lower for word in _P1_SYSTEM_RESOURCES
-        ):
-            return "system:status", 0.9
-        if any(word in text_lower for word in _P1_SYSTEM_RESOURCES) and any(
-            word in text_lower for word in _P1_SYSTEM_RESOURCE_VERBS
-        ):
+        if _is_machine_resource_query(text_lower):
             return "system:status", 0.9
 
         # File operations - MUST CHECK BEFORE notes (to prevent "notes.txt" matching notes plugin)
@@ -4743,18 +4795,7 @@ class NLPProcessor:
 
         # ── Reminder intents (must come BEFORE thanks/greetings) ─────────────────
         # Set: "remind me to X", "set a reminder", "alert me", "notify me"
-        if any(
-            phrase in text_lower
-            for phrase in [
-                "remind me",
-                "set a reminder",
-                "add a reminder",
-                "create a reminder",
-                "alert me",
-                "notify me when",
-                "don't let me forget",
-            ]
-        ):
+        if _is_reminder_request(text_lower):
             return "reminder:set", 0.95
         # List: "what reminders", "show my reminders", "do I have any reminders"
         if any(

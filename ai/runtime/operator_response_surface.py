@@ -108,6 +108,51 @@ _FORBIDDEN_OPERATOR_CHATTER_MARKERS = (
 )
 
 
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
+
+
+def drop_sentences(text: str, should_drop) -> str:
+    """Remove whole sentences for which ``should_drop(sentence, index)`` is true.
+
+    Works line by line so the reply keeps its shape: paragraphs, list items
+    and fenced code come back where they were. ``index`` counts kept-or-dropped
+    sentences from the start of the reply. A line left empty by the removal is
+    dropped; blank lines the model wrote are kept.
+
+    The strippers this replaces split on newlines and rejoined with spaces,
+    which flattened every list and paragraph into one line.
+    """
+    out: list[str] = []
+    in_fence = False
+    index = 0
+    for line in str(text or "").replace("\r\n", "\n").split("\n"):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence or not line.strip():
+            out.append(line.rstrip())
+            continue
+        prefix = ""
+        body = line.strip()
+        marker = _LIST_ITEM.match(line)
+        if marker:
+            prefix = marker.group(0)
+            body = line[marker.end() :].strip()
+        kept: list[str] = []
+        for sentence in _SENTENCE_BREAK.split(body):
+            if not sentence.strip():
+                continue
+            if not should_drop(sentence.strip(), index):
+                kept.append(sentence.strip())
+            index += 1
+        if kept:
+            out.append(prefix + " ".join(kept))
+    joined = "\n".join(out)
+    return re.sub(r"\n{3,}", "\n\n", joined).strip()
+
+
 def strip_meta_response_artifacts(text: str) -> str:
     cleaned = str(text or "")
     cleaned = cleaned.replace("\r\n", "\n")
@@ -124,58 +169,37 @@ def strip_meta_response_artifacts(text: str) -> str:
         "here is a rewritten version",
         "rewritten:",
     )
-    parts = re.split(r"(?<=[.!?])\s+|\n+", cleaned)
-    kept: list[str] = []
-    for part in parts:
-        sentence = str(part or "").strip()
-        if not sentence:
-            continue
+    # Drop marker sentences anywhere, and a thinking-aloud sentence only when
+    # nothing came before it.
+    dropped_lead = [True]
+
+    def _drop(sentence: str, _index: int) -> bool:
         low = sentence.lower()
         if any(marker in low for marker in banned_markers):
-            continue
-        # Drop standalone thinking-aloud sentences mid-response
-        is_pure_filler = any(re.match(p, low, re.IGNORECASE) for p in _THINKING_ALOUD_PREFIXES)
-        if is_pure_filler and len(kept) == 0:
-            continue
-        kept.append(sentence)
-    cleaned = " ".join(kept).strip()
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
+            return True
+        if dropped_lead[0] and any(re.match(p, low, re.IGNORECASE) for p in _THINKING_ALOUD_PREFIXES):
+            return True
+        dropped_lead[0] = False
+        return False
+
+    cleaned = drop_sentences(cleaned, _drop)
+    cleaned = re.sub(r"[ \t]+([,.!?])", r"\1", cleaned)
     cleaned = _TRAILING_LECTURE_PATTERNS.sub("", cleaned).strip()
     return cleaned
 
 
 def _suppress_passive_operator_chatter(text: str) -> str:
-    out_lines: list[str] = []
-    for line in re.split(r"\n+", str(text or "")):
-        line_clean = str(line or "").strip()
-        if not line_clean:
-            continue
-        low = line_clean.lower()
-        if any(marker in low for marker in _PASSIVE_OPERATOR_LINES):
-            continue
-        out_lines.append(line_clean)
-    return "\n".join(out_lines).strip()
+    return drop_sentences(text, lambda sentence, _i: any(m in sentence.lower() for m in _PASSIVE_OPERATOR_LINES))
 
 
 def sanitize_operator_chatter(text: str) -> str:
     source = str(text or "").strip()
     if not source:
         return ""
-    fragments = re.split(r"(?<=[.!?])\s+|\n+", source)
-    kept: list[str] = []
-    for fragment in fragments:
-        sentence = str(fragment or "").strip()
-        if not sentence:
-            continue
-        low = sentence.lower()
-        if any(marker in low for marker in _FORBIDDEN_OPERATOR_CHATTER_MARKERS):
-            continue
-        kept.append(sentence)
-    cleaned = " ".join(kept).strip()
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
-    return cleaned
+    return drop_sentences(
+        source,
+        lambda sentence, _i: any(marker in sentence.lower() for marker in _FORBIDDEN_OPERATOR_CHATTER_MARKERS),
+    )
 
 
 def detect_context_signal(user_input: str, perception_frame: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -590,6 +614,11 @@ def render_local_execution_error_response(
     return normalize_response_paragraphs(rendered)
 
 
+# Executor planning labels. After "Finding:" comes the finding, which stays;
+# after "Next best move:" comes a plan step, which goes with its label.
+_INTERNAL_LABEL_SPAN = re.compile(r"(?i)\s*\bnext best move\s*:.*$|\bfinding\s*:\s*")
+
+
 def render_operator_response(
     *,
     user_input: str,
@@ -628,51 +657,32 @@ def render_operator_response(
             next_step=next_step,
         )
 
-    # Build a user-facing summary without internal labels or raw file paths.
-    # "Finding:", "Next best move:", and "I inspected {path}" are Alice's internal
-    # planning tokens and must never appear in user-facing output.
-    analysis = dict(local.get("analysis") or {})
-    summary = str(analysis.get("summary") or local.get("summary") or "").strip()
-    responsibility = str(analysis.get("responsibility") or "").strip()
-
-    # Priority 1: explicit summary from the local execution result.
-    if summary:
-        return summary.strip()
-
-    # Priority 2: responsibility label → natural sentence.
-    if responsibility:
-        if responsibility == "agent loop":
-            return "Looked at the operator loop — that's where plan/act/verify runs."
-        elif responsibility == "runtime pipeline":
-            return "Looked at the runtime pipeline."
-        else:
-            return f"Looked at the {responsibility} layer."
-
-    # Priority 2.5: when a file was actually inspected successfully, skip base_text.
-    # base_text in this case is LLM-generated context that should not surface in operator output.
-    # The momentum layer will append "I inspected {file}." with grounded evidence.
-    inspected_file_evidence = str(local.get("inspected_file") or "").strip()
-    if local_success is True and inspected_file_evidence:
-        # "Working on it." promises work that is already finished and says
-        # nothing about what was found. The momentum layer appends the grounded
-        # "I inspected {file}." right after this, so name the file here too
-        # rather than standing in with a placeholder.
-        return f"I looked at {inspected_file_evidence}."
-
-    # Strip internal planning labels that executors may append to base_text.
-    # These must not reach the contract check or the user surface.
-    # Filter line-by-line so leading labels (e.g. a response that IS "Next best move:...")
-    # are fully removed rather than partially matched.
-    _raw_lines = re.split(r"\n", str(base_text or ""))
-    _kept_lines = [ln for ln in _raw_lines if not re.search(r"(?i)\bnext best move\b|\bfinding:", ln)]
-    base_stripped = "\n".join(_kept_lines).strip()
-
-    # Priority 3: sanitized base_text — always preferred over a generic ack.
+    # The reply in hand was written from the tool result (by the model, with its
+    # numbers checked, or by the executor). It used to be replaced by a summary
+    # field, a canned label ("Looked at the runtime pipeline.") or "I looked at
+    # X." -- and a 400-file listing whose lines mentioned "Finding:" was deleted
+    # whole, leaving "I don't have a result for that yet". Strip the internal
+    # label spans, keep everything else, and fall back only when nothing is left.
+    kept_lines = []
+    for line in str(base_text or "").split("\n"):
+        stripped = _INTERNAL_LABEL_SPAN.sub("", line)
+        if stripped.strip() or not line.strip():
+            kept_lines.append(stripped.rstrip())
+    base_stripped = "\n".join(kept_lines).strip()
     cleaned = sanitize_operator_chatter(
         _suppress_passive_operator_chatter(strip_meta_response_artifacts(base_stripped))
     )
-    if cleaned and len(cleaned) > 8:
+    if cleaned.strip():
         return cleaned.strip()
+
+    analysis = dict(local.get("analysis") or {})
+    summary = str(analysis.get("summary") or local.get("summary") or "").strip()
+    if summary:
+        return summary
+
+    inspected_file_evidence = str(local.get("inspected_file") or "").strip()
+    if local_success is True and inspected_file_evidence:
+        return f"I looked at {inspected_file_evidence}."
 
     # Priority 4: action-aware fallback when base_text was entirely internal labels.
     action = str(local.get("action") or "")

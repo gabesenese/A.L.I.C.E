@@ -1,8 +1,6 @@
 from contextlib import contextmanager
-from types import SimpleNamespace
 
 from ai.infrastructure.runtime_flags import is_enabled
-from ai.introspection.system_state_api import SystemStateAPI
 from ai.plugins.file_operations_plugin import FileOperationsPlugin
 from ai.plugins.plugin_system import PluginInterface, PluginManager
 
@@ -22,9 +20,6 @@ def test_rich_entrypoint_passes_llm_policy(monkeypatch):
     class _FakeUI:
         def __init__(self, user_name):
             self.user_name = user_name
-
-        def show_loading(self, message):
-            pass
 
         def clear(self):
             pass
@@ -116,34 +111,6 @@ def test_file_operations_rejects_sibling_prefix_escape(tmp_path):
     assert plugin._is_safe_path(str(outside)) is False
 
 
-def test_system_state_api_reports_actual_runtime_attribute_names():
-    class _GoalSystem:
-        def get_active_goals(self):
-            return [SimpleNamespace(title="Build desktop mode", status="active")]
-
-    alice = SimpleNamespace(
-        nlp=object(),
-        router=None,
-        reasoning_engine=object(),
-        learning_engine=object(),
-        goal_system=_GoalSystem(),
-        plugins=SimpleNamespace(plugins={"CalendarPlugin": object()}),
-    )
-
-    api = SystemStateAPI(alice)
-
-    processors = api.get_processor_state()
-    plugins = api.get_plugin_state()
-    goals = api.get_active_goals()
-
-    assert processors["reasoning_engine"] == "active"
-    assert processors["learning_engine"] == "active"
-    assert plugins["plugins_loaded"] is True
-    assert plugins["plugin_count"] == 1
-    assert plugins["available_plugins"] == ["CalendarPlugin"]
-    assert goals == ["Build desktop mode (active)"]
-
-
 def test_contract_pipeline_remains_enabled_by_default():
     assert is_enabled("contract_pipeline") is True
 
@@ -165,6 +132,7 @@ def test_current_events_guard_detects_world_situation_without_live_sources():
     assert payload["blocked_source"] == "model memory"
 
     response = alice._formulate_freshness_guard_response("what is happening in the world right now?").lower()
+    assert "i can" not in response  # no offer to look it up: there is no news tool
     assert "live sources" in response
     assert "model memory" in response
     assert "pandemic" not in response

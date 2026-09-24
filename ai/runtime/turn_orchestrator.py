@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import logging
 import os
 import re
 from typing import Any, Dict, Optional
 
+from ai.runtime.continuity_claim_guard import UNSUPPORTED_CLAIM_REPLY
 from ai.runtime.response_authority import is_authoritative, sanitize_internal_process_output
 from ai.contracts import (
     MemoryRequest,
@@ -50,26 +51,34 @@ def _verification_fallback(
             fg = get_fallback_graph()
             steps = fg.get_steps(intent or tool, error_type)
             step_idx = rm.get_step_index(user_id, intent or tool, error_type)
-            if steps and step_idx < len(steps):
-                return steps[step_idx].message
+            if steps:
+                # A repeat failure stays on the last step instead of running off
+                # the end into a line that named the plugin class and error code.
+                return steps[min(step_idx, len(steps) - 1)].message
         except Exception:
             pass
-        if tool and error_type:
-            return (
-                f"The {tool} action ran into an issue ({error_type}). Try rephrasing or check that the target exists."
-            )
-        if tool:
-            return f"The {tool} action didn't complete successfully. Try again or rephrase what you need."
-        return "That action didn't complete successfully. Try rephrasing or providing more detail."
+        # Never put the tool or error identifiers in front of the user: they are
+        # Python class names and constants ("WeatherPlugin", "unknown_location").
+        return "That didn't work. Try again, or ask it a different way."
 
     if reason == "empty_response":
         return "I wasn't able to generate a response for that. Could you be more specific about what you need?"
 
     if reason == "unsupported_continuity_claim":
-        return "I don't have enough context to answer that confidently. Could you give me a bit more detail?"
+        return UNSUPPORTED_CLAIM_REPLY
 
     if reason == "unverified_codebase_claim":
-        return "I don't have the file details memorized. Use 'inspect <filename>' to get accurate info about a specific file."
+        # Say what happened, in the user's words: the answer leaned on a file that
+        # is not there. This used to tell the user to type "inspect <filename>".
+        missing = [
+            str(item).strip()
+            for item in list(diagnostics.get("missing_paths") or [])
+            + list(diagnostics.get("missing_directories") or [])
+            if str(item).strip()
+        ]
+        if missing:
+            return f"I don't see {missing[0]} in the workspace, so I'd only be guessing about it. Want me to look at what's there?"
+        return "I'd only be guessing about those files. Want me to look at what's there?"
 
     if reason == "unverified_weather_claim":
         return "I don't have live weather data. Try asking 'what's the weather in [city]?' to get current conditions."
@@ -93,6 +102,26 @@ def _verification_fallback(
     return "I wasn't able to complete that — try rephrasing with a more specific action."
 
 
+def _repair_codebase_claims(text: str, diagnostics: dict) -> str:
+    """Drop the sentences that name paths the workspace does not have.
+
+    Returns "" when nothing was dropped or nothing is left, so the caller keeps
+    the honest fallback rather than an answer with holes in it.
+    """
+    from ai.runtime.operator_response_surface import drop_sentences
+
+    missing = [
+        str(item).strip()
+        for item in list(diagnostics.get("missing_paths") or []) + list(diagnostics.get("missing_directories") or [])
+        if str(item).strip()
+    ]
+    if not missing:
+        return ""
+    original = str(text or "").strip()
+    repaired = drop_sentences(original, lambda sentence, _i: any(m in sentence for m in missing)).strip()
+    return repaired if repaired and repaired != original else ""
+
+
 @dataclass(frozen=True)
 class RoutePhaseResult:
     decision: RouterDecision
@@ -111,6 +140,7 @@ class ExecutePhaseResult:
 class VerifyPhaseResult:
     proposed_response: ResponseOutput
     verification: Optional[VerifierResult]
+    intent: str = ""
 
 
 @dataclass(frozen=True)
@@ -310,8 +340,32 @@ class TurnOrchestrator:
                     metadata={"trace_id": trace_id},
                 )
             )
+            # One made-up path used to cost the whole answer. Drop the sentences
+            # that lean on it and check again; the verifier reports one kind of
+            # claim at a time, so a second pass can find the next.
+            for _ in range(3):
+                if verification.accepted or str(verification.reason or "") != "unverified_codebase_claim":
+                    break
+                repaired = _repair_codebase_claims(proposed.text, dict(verification.diagnostics or {}))
+                if not repaired:
+                    break
+                proposed = replace(proposed, text=repaired)
+                verification = self.boundaries.verifier.verify(
+                    VerifierRequest(
+                        user_input=user_input,
+                        decision=route_phase.decision,
+                        memory=route_phase.memory,
+                        proposed_response=proposed,
+                        tool_result=execute_phase.tool_result,
+                        metadata={"trace_id": trace_id},
+                    )
+                )
 
-        return VerifyPhaseResult(proposed_response=proposed, verification=verification)
+        return VerifyPhaseResult(
+            proposed_response=proposed,
+            verification=verification,
+            intent=str(route_phase.decision.intent or ""),
+        )
 
     def respond_phase(
         self,
@@ -321,10 +375,16 @@ class TurnOrchestrator:
         verification = verify_phase.verification
         proposed = verify_phase.proposed_response
 
-        if verification is not None and not verification.accepted and not is_authoritative(
-            proposed.metadata if proposed else None
+        if (
+            verification is not None
+            and not verification.accepted
+            and not is_authoritative(proposed.metadata if proposed else None)
         ):
-            _intent_for_fallback = str(
+            # The routed intent ("weather:current") keys the fallback graph. The
+            # response metadata rarely carries one, and the tool name it fell
+            # back to ("WeatherPlugin") matched no entry, so every tool failure
+            # got the same generic line.
+            _intent_for_fallback = verify_phase.intent or str(
                 verify_phase.proposed_response.metadata.get("intent", "")
                 if verify_phase.proposed_response and verify_phase.proposed_response.metadata
                 else ""

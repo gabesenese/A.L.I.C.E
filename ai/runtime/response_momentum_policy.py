@@ -4,11 +4,13 @@ import re
 from typing import Any, Dict
 from ai.runtime.turn_mode_policy import classify_turn_mode
 from ai.runtime.operator_response_surface import (
+    drop_sentences,
     normalize_response_paragraphs,
     render_operator_response,
     strip_meta_response_artifacts,
 )
 from ai.runtime.verified_growth import verify_operator_surface_contract
+from ai.infrastructure.runtime_flags import scripted_overrides_enabled
 
 
 def _has_local_evidence_for_inspection(local: Dict[str, Any]) -> bool:
@@ -121,41 +123,24 @@ def strip_passive_followup_sentences(text: str, *, mode: str) -> str:
     source = str(text or "").strip()
     if not source:
         return ""
-    fragments = re.split(r"(?<=[.!?])\s+|\n+", source)
+    # Only closers that carry nothing, and promises of follow-up that no code
+    # keeps. "Let me know if you want the numbers" and "Do you want me to
+    # sketch the schema?" are real offers and stay. Whole sentences go: cutting
+    # at the token used to leave fragments like "Let me know".
     banned_tokens = (
-        "if you want",
-        "let me know",
+        "let me know if you need anything else",
+        "hope this helps",
+        "i'm here to help",
         "i can keep tracking this thread",
         "keep tracking this thread",
         "follow up next turn",
         "i'll follow up",
         "i can follow up",
         "i can keep track",
-        "we can revisit",
-        "ask me if",
-        "would you like me to",
-        "do you want me to",
         "please repeat your request in one line",
         "which one sounds like a good starting point",
     )
-    kept: list[str] = []
-    for frag in fragments:
-        sentence = str(frag or "").strip()
-        if not sentence:
-            continue
-        low = sentence.lower()
-        matched_token = next((token for token in banned_tokens if token in low), "")
-        if matched_token:
-            cut_idx = low.find(matched_token)
-            preserved = sentence[:cut_idx].strip(" ,;:-")
-            if preserved:
-                kept.append(preserved)
-            continue
-        kept.append(sentence)
-    cleaned = " ".join(kept).strip()
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
-    return cleaned
+    return drop_sentences(source, lambda sentence, _i: any(token in sentence.lower() for token in banned_tokens))
 
 
 def apply_response_momentum(
@@ -223,7 +208,11 @@ def apply_response_momentum(
             "i reviewed",
         )
         if any(token in low for token in background_claims):
-            return "I'm good.\n\nStill focused."
+            # She does nothing between turns, so a sentence claiming she did is
+            # dropped. The rest of the reply stands.
+            text = drop_sentences(text, lambda sentence, _i: any(t in sentence.lower() for t in background_claims))
+            if not text.strip():
+                return "I'm good."
         return normalize_response_paragraphs(_enforce_claim_evidence(text, local))
 
     if normalized_intent == "conversation:clarification_needed" and normalized_route == "llm":
@@ -276,7 +265,8 @@ def apply_response_momentum(
             if status_text:
                 rendered = f"{status_text}\n\n{rendered}".strip() if rendered else status_text
         if not str(rendered or "").strip():
-            return "I ran into an issue with that operator action. Let me try again."
+            # Nothing to say, and nothing retries: say so without promising to.
+            return "That didn't give me anything to report."
         # Error responses (Blocker + Next best move) are pre-formatted — bypass contract.
         is_error_response = local.get("success") is False or bool(str(local.get("error") or "").strip())
         if is_error_response:
@@ -288,7 +278,10 @@ def apply_response_momentum(
             local_execution=local,
             next_step=str(next_step or ""),
         )
-        if not contract.passed:
+        if not contract.passed and scripted_overrides_enabled():
+            # The contract is a shape test (a "let me know", a label, under 8
+            # characters). Replacing a real answer over it with a promise to
+            # retry, when nothing retries, was the worse reply.
             return "I ran into an issue with that operator action. Let me try again."
         # Contract passed — assemble final output.
         base_ct = normalize_response_paragraphs(_enforce_claim_evidence(rendered, local))
@@ -324,15 +317,12 @@ def apply_response_momentum(
         "what would you like to tackle first",
         "which one should we inspect",
         "what would you like to focus on first",
-        "if that sounds interesting",
-        "if you want",
         "i can keep tracking this thread",
         "follow up next turn",
-        "let me know",
     )
-    for marker in passive_markers:
-        if marker in low:
-            text = text.replace(marker, "").strip()
+    # Whole sentences only. Replacing the marker inside a sentence turned
+    # "Just let me know if you want a deeper dive" into "Just a deeper dive".
+    text = drop_sentences(text, lambda sentence, _i: any(marker in sentence.lower() for marker in passive_markers))
 
     blocker = ""
     if str(local.get("error") or ""):

@@ -11,12 +11,54 @@ from rich.text import Text
 from rich.live import Live
 from rich.prompt import Prompt
 from rich.markdown import Markdown
-from rich.progress import Progress, BarColumn, TextColumn
 from rich import box
 from datetime import datetime
-import time
-import random
 import re
+import time
+
+
+_MARKDOWN_LINE = re.compile(r"^\s*(#{1,6}\s|[-*>]\s|\d+\.\s|\|)", re.MULTILINE)
+_CODE_SPAN = re.compile(r"(```.*?```|`[^`\n]*`)", re.DOTALL)
+
+
+def _looks_like_markdown(text: str) -> bool:
+    """Markdown only when a line starts with a marker or there is a code fence.
+
+    A mid-sentence "- " or "**" is prose, not structure.
+    """
+    return "```" in text or bool(_MARKDOWN_LINE.search(text))
+
+
+def _protect_underscores(text: str) -> str:
+    """Escape underscores outside code, so __init__.py is not rendered as bold "init".
+
+    The model writes emphasis with asterisks; an underscore in her replies is
+    nearly always part of a name.
+    """
+    parts = _CODE_SPAN.split(text)
+    return "".join(part if i % 2 else part.replace("_", "\\_") for i, part in enumerate(parts))
+
+
+class ThinkingStatus:
+    """What the spinner shows: a phase, and the elapsed seconds once it is slow."""
+
+    def __init__(self, style: str = "", phase: str = "thinking…", clock=time.monotonic):
+        self._clock = clock
+        self._started = clock()
+        self._style = style
+        self.phase = phase
+        self._spinner = Spinner("dots2")
+
+    def set_phase(self, phase: str) -> None:
+        self.phase = phase
+
+    def label(self) -> str:
+        elapsed = self._clock() - self._started
+        return self.phase if elapsed < 2 else f"{self.phase} {elapsed:.0f}s"
+
+    def __rich__(self):
+        self._spinner.update(text=Text(self.label(), style=self._style))
+        return self._spinner
 
 
 class RichTerminalUI:
@@ -26,7 +68,6 @@ class RichTerminalUI:
         self.console = Console()
         self.user_name = user_name
         self.conversation_history = []
-        self.used_greetings = set()  # Track used greeting signatures to avoid repeats
 
         # Futuristic tech color scheme - sleek and modern
         self.colors = {
@@ -41,151 +82,9 @@ class RichTerminalUI:
             "dim_border": "grey35",  # Subtle dark borders
         }
 
-        # Time-based greeting components. We combine these dynamically to avoid
-        # limited repeated lines while keeping greeting tone time-aware.
-        self.greeting_bank = {
-            "early_morning": {
-                "openers": [
-                    "Good early morning, {name}.",
-                    "Morning, {name}.",
-                    "You are up early, {name}.",
-                    "Hello, {name}.",
-                ],
-                "context": [
-                    "This is a clean window to plan the day before noise kicks in.",
-                    "Great time to lock one priority and execute it fully.",
-                    "Quiet start like this is ideal for focused setup work.",
-                    "If we align now, the rest of the day gets easier.",
-                ],
-            },
-            "morning": {
-                "openers": [
-                    "Good morning, {name}.",
-                    "Morning, {name}.",
-                    "Hello, {name}.",
-                    "Hi, {name}.",
-                ],
-                "context": [
-                    "Let's set the top outcomes for today.",
-                    "Good time to pick one high-impact task and move it forward.",
-                    "We can map the day into clear steps before execution starts.",
-                    "If you share your top priority, I can structure the first sprint.",
-                ],
-            },
-            "afternoon": {
-                "openers": [
-                    "Good afternoon, {name}.",
-                    "Afternoon, {name}.",
-                    "Hey, {name}.",
-                    "Hi, {name}.",
-                ],
-                "context": [
-                    "Perfect checkpoint to re-prioritize and close the critical path.",
-                    "We can recover momentum fast with one concrete next action.",
-                    "This is a good slot to clear blockers and finish strong.",
-                    "If context has shifted, we can replan in one pass.",
-                ],
-            },
-            "evening": {
-                "openers": [
-                    "Good evening, {name}.",
-                    "Evening, {name}.",
-                    "Hello, {name}.",
-                    "Hi, {name}.",
-                ],
-                "context": [
-                    "Ideal time to wrap open loops and prepare tomorrow's handoff.",
-                    "We can turn today's progress into a clean next-step plan.",
-                    "If you're winding down, I can summarize and stage tomorrow's priorities.",
-                    "A short review now can save time tomorrow morning.",
-                ],
-            },
-            "night": {
-                "openers": [
-                    "Good evening, {name}.",
-                    "Late session, {name}.",
-                    "Still in motion, {name}.",
-                    "Hello, {name}.",
-                ],
-                "context": [
-                    "Let's keep this focused and move one thing to done.",
-                    "Night sessions work best with tight scope and clear output.",
-                    "I can keep this lean: one target, one plan, one execution pass.",
-                    "If energy is low, we can prioritize only what matters now.",
-                ],
-            },
-            "late_night": {
-                "openers": [
-                    "Late night, {name}.",
-                    "Still online, {name}.",
-                    "Hello, {name}.",
-                    "Quiet hours, {name}.",
-                ],
-                "context": [
-                    "Let's keep it minimal and high-value.",
-                    "I can help you finish one important task and park the rest.",
-                    "Best move now is a narrow objective with no distraction.",
-                    "If you want, we can prepare a precise restart plan for tomorrow.",
-                ],
-            },
-        }
-        self.agentic_prompts = [
-            "What outcome should we drive first?",
-            "Share one priority and I'll turn it into the next actions.",
-            "Want a quick status sweep and a concrete plan?",
-            "Give me the target and I'll map the shortest path.",
-            "Point me at the blocker and I'll propose the next move.",
-            "If you name the goal, I'll stage execution steps now.",
-        ]
-
     def clear(self):
         """Clear the console"""
         self.console.clear()
-
-    def _get_time_period(self):
-        """Get current time period for greeting"""
-        hour = datetime.now().hour
-        if 5 <= hour < 7:
-            return "early_morning"
-        elif 7 <= hour < 12:
-            return "morning"
-        elif 12 <= hour < 17:
-            return "afternoon"
-        elif 17 <= hour < 21:
-            return "evening"
-        elif 21 <= hour < 24:
-            return "night"
-        else:  # 0-5am
-            return "late_night"
-
-    def _get_greeting(self):
-        """Get a non-repeating, time-aware greeting with agentic intent."""
-        period = self._get_time_period()
-        bank = self.greeting_bank.get(period, self.greeting_bank["afternoon"])
-        combos = [
-            (opener, context, prompt)
-            for opener in bank["openers"]
-            for context in bank["context"]
-            for prompt in self.agentic_prompts
-        ]
-
-        unused = []
-        for opener, context, prompt in combos:
-            signature = (period, opener, context, prompt)
-            if signature not in self.used_greetings:
-                unused.append((opener, context, prompt, signature))
-
-        if not unused:
-            self.used_greetings = {sig for sig in self.used_greetings if sig[0] != period}
-            for opener, context, prompt in combos:
-                signature = (period, opener, context, prompt)
-                unused.append((opener, context, prompt, signature))
-
-        opener, context, prompt, signature = random.choice(unused)
-        self.used_greetings.add(signature)
-
-        opener_text = opener.format(name=self.user_name)
-        return f"{opener_text} {context} {prompt}"
 
     def _get_goal_line(self) -> str:
         """Return a formatted goal line from the top active goal, or empty string."""
@@ -243,173 +142,54 @@ class RichTerminalUI:
 
         # Info panel - sleek futuristic design
         current_time = datetime.now()
-        info_text = f"""[{self.colors["accent"]}]A.L.I.C.E[/{self.colors["accent"]}] [{self.colors["info"]}]>>[/{self.colors["info"]}] Advanced Linguistic Intelligence Computer Entity
-[{self.colors["info"]}]{current_time.strftime("%A, %B %d, %Y")} | {current_time.strftime("%H:%M:%S")}[/{self.colors["info"]}]
-
-System ready. Type [{self.colors["accent"]}]/help[/{self.colors["accent"]}] for available commands
-"""
+        # Only the date. The "System ready." line and the backronym made the
+        # session open like a boot loader; she opens it herself now.
+        info_text = f"[{self.colors['info']}]{current_time.strftime('%A, %B %d, %Y')}[/{self.colors['info']}]"
 
         info_panel = Panel(info_text, border_style=self.colors["dim_border"], box=box.MINIMAL)
         self.console.print(info_panel, justify="center")
         self.console.print()
 
-    def show_loading(self, message="Initializing A.L.I.C.E systems"):
-        """Show loading progress bar with percentage"""
-        with Progress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(
-                bar_width=40,
-                style=self.colors["accent"],
-                complete_style=self.colors["success"],
-            ),
-            TextColumn(f"[{self.colors['success']}]{{task.percentage:>3.0f}}%"),
-            console=self.console,
-        ) as progress:
-            task = progress.add_task(f"[{self.colors['accent']}]{message}", total=100)
-
-            # Simulate loading progress (0-100%)
-            for i in range(100):
-                progress.update(task, advance=1)
-                time.sleep(0.02)  # 2 seconds total (100 steps * 0.02s)
-
     @contextmanager
     def thinking_spinner(self):
-        """Context manager that shows an animated spinner while ALICE is processing."""
-        spinner = Spinner("dots2", text=f"[{self.colors['info']}]thinking…[/{self.colors['info']}]")
-        with Live(spinner, console=self.console, transient=True, refresh_per_second=12):
-            yield
+        """Spinner while a turn runs, with the seconds it has taken so far.
+
+        A fixed "thinking…" looked the same at second 2 of a normal answer and
+        at second 80 of a model that will time out; the counter tells them apart.
+        """
+        status = ThinkingStatus(style=self.colors["info"])
+        with Live(status, console=self.console, transient=True, refresh_per_second=12):
+            yield status
 
     def print_user_input(self, text):
-        """Display user input"""
-        ts = datetime.now().strftime("%H:%M")
-        self.console.print(
-            f"[{self.colors['user']}]❯ {self.user_name}[/{self.colors['user']}]  "
-            f"[{self.colors['dim_border']}]{ts}[/{self.colors['dim_border']}]\n  {text}"
-        )
+        """Record the user's line. It is already on screen after the ❯ prompt,
+        so echoing it again with a name and timestamp only made it a log."""
         self.conversation_history.append(("user", text))
 
-    def _format_assistant_terminal_text(self, text: str) -> str:
-        """Apply display-only spacing for long plain-text replies in terminal UI."""
-        value = str(text or "").strip()
-        if not value:
-            return value
-
-        if "\n" in value:
-            return value
-
-        md_markers = ("**", "##", "```", "| ", "- ", "* ")
-        if any(marker in value for marker in md_markers):
-            return value
-
-        if re.search(r"^\s*\d+\.\s+", value):
-            return value
-
-        normalized = re.sub(r"\s+", " ", value).strip()
-
-        # Structured one-line outputs often contain repeated section labels.
-        # Reflow those into readable paragraph blocks before fallback sentence spacing.
-        section_labels = (
-            "Project Concept",
-            "Objective",
-            "Project Direction",
-            "Direction",
-            "Domain",
-            "Key Features",
-            "Features",
-            "Next Steps",
-            "Deliverables",
-            "Summary",
-            "Goals",
-            "Goal",
-            "Scope",
-            "Timeline",
-            "Risks",
-            "Approach",
-        )
-        heading_pattern = re.compile(r"\b(" + "|".join(re.escape(label) for label in section_labels) + r"):")
-        heading_matches = list(heading_pattern.finditer(normalized))
-        if len(heading_matches) >= 2:
-            structured = normalized
-            structured = heading_pattern.sub(r"\n\n\1:", structured).strip()
-            structured = re.sub(r"\n{3,}", "\n\n", structured)
-
-            # If headings are followed by inline numbered lists, put each item on its own line.
-            structured = re.sub(r"\s+(?=\d+\.\s+)", "\n", structured)
-            structured = re.sub(r"\n{3,}", "\n\n", structured).strip()
-
-            if "\n" in structured:
-                return structured
-
-        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", normalized) if s.strip()]
-        if len(sentences) < 2:
-            return value
-
-        # Keep short lead-ins attached to the next sentence for smoother reading.
-        if len(sentences) >= 2:
-            lead_tokens = re.findall(r"\b\w+\b", sentences[0])
-            if len(lead_tokens) <= 2:
-                sentences = [f"{sentences[0]} {sentences[1]}".strip(), *sentences[2:]]
-
-        if len(normalized) < 120:
-            return value
-
-        return "\n\n".join(sentences)
-
     def print_assistant_response(self, text):
-        """Display assistant response with consistent, clean formatting."""
+        """Print her reply the way she wrote it: no frame, no timestamp, no reflow.
+
+        Replies used to go into a bordered panel titled "A.L.I.C.E" with a
+        timestamp, after a reflow that split two or three sentences into
+        one-sentence paragraphs. That read as a log record, not speech.
+        """
         if not text:
             return
-        text = text.strip()
-        display_text = self._format_assistant_terminal_text(text)
-
-        # Detect content that benefits from Markdown rendering
-        _MD_MARKERS = ("**", "##", "```", "| ", "- ", "* ")
-        is_multiline = "\n" in display_text
-        has_markdown = any(m in display_text for m in _MD_MARKERS)
-        # Numbered list: lines starting with digit+dot (e.g. "1. Item")
-        has_numbered = any(
-            line.lstrip().startswith(tuple(f"{i}." for i in range(1, 20))) for line in display_text.splitlines()
-        )
-
-        if has_markdown or has_numbered:
+        text = str(text).strip()
+        self.console.print()
+        if _looks_like_markdown(text):
             try:
-                content = Markdown(display_text)
+                self.console.print(Markdown(_protect_underscores(text)))
             except Exception:
-                content = Text(display_text)
-        elif is_multiline:
-            content = Text(display_text)
-
-        if is_multiline or has_markdown or has_numbered:
-            ts = datetime.now().strftime("%H:%M")
-            try:
-                panel_width = max(40, self.console.width - 2)
-            except Exception:
-                panel_width = 98
-            panel = Panel(
-                content,
-                title=f"[{self.colors['assistant']}]A.L.I.C.E[/{self.colors['assistant']}]",
-                subtitle=f"[{self.colors['dim_border']}]{ts}[/{self.colors['dim_border']}]",
-                border_style=self.colors["dim_border"],
-                box=box.ROUNDED,
-                padding=(0, 2),
-                width=panel_width,
-            )
-            self.console.print()
-            self.console.print(panel)
+                self.console.print(Text(text, overflow="fold"))
         else:
-            self.console.print()
-            self.console.print(
-                f"[{self.colors['assistant']}]A.L.I.C.E:[/{self.colors['assistant']}]",
-                end=" ",
-            )
-            self.console.print(Text(display_text, overflow="fold"))
-
+            self.console.print(Text(text, style=self.colors["assistant"], overflow="fold"))
         self.conversation_history.append(("assistant", text))
         self.console.print()
 
     def print_error(self, text):
         """Display error message"""
-        self.console.print(f"[{self.colors['error']}]ERROR:[/{self.colors['error']}] {text}")
+        self.console.print(f"[{self.colors['error']}]{text}[/{self.colors['error']}]")
         self.console.print()
 
     def print_info(self, text):
@@ -477,15 +257,4 @@ System ready. Type [{self.colors["accent"]}]/help[/{self.colors["accent"]}] for 
             box=box.DOUBLE,
         )
         self.console.print(panel)
-        self.console.print()
-
-    def show_goodbye(self):
-        """Display goodbye message"""
-        goodbye_panel = Panel(
-            f"[{self.colors['accent']}]Goodbye! A.L.I.C.E shutting down...[/{self.colors['accent']}]",
-            border_style=self.colors["border"],
-            box=box.ROUNDED,
-        )
-        self.console.print()
-        self.console.print(goodbye_panel, justify="center")
         self.console.print()

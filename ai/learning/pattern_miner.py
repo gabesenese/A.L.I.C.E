@@ -437,7 +437,8 @@ class HTNPlanner:
 
 _habit_miner_instance: Optional[HabitMiner] = None
 _htn_planner_instance: Optional[HTNPlanner] = None
-_habit_singletons_lock = threading.Lock()
+# Reentrant: get_htn_planner holds it while get_habit_miner takes it again.
+_habit_singletons_lock = threading.RLock()
 
 
 def get_habit_miner(persistence_path: Optional[str] = None) -> HabitMiner:

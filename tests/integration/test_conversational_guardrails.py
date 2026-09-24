@@ -10,7 +10,6 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from ai.core.conversational_engine import ConversationalEngine, ConversationalContext
-from ai.infrastructure.router import RequestRouter, RoutingDecision
 from ai.learning.phrasing_learner import PhrasingLearner
 
 
@@ -68,17 +67,3 @@ def test_phrasing_learner_learns_low_complexity_help_opener(tmp_path: Path) -> N
         )
 
     assert learner.can_phrase_myself(thought, "helpful") is True
-
-
-def test_router_does_not_intercept_low_confidence_conversation_question() -> None:
-    """Low-confidence conversational questions should fall through to LLM fallback."""
-    router = RequestRouter()
-
-    result = router.route(
-        intent="conversation:question",
-        confidence=0.52,
-        entities={},
-        user_text="what is ram",
-    )
-
-    assert result.decision == RoutingDecision.LLM_FALLBACK

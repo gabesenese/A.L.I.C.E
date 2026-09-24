@@ -11,16 +11,6 @@ import os
 from typing import Set
 
 QUARANTINED_SUBSYSTEMS: Set[str] = {
-    "session_summarizer",
-    "capability_constraints",
-    "result_quality_scorer",
-    "goal_alignment_tracker",
-    "tone_trajectory_engine",
-    "pattern_based_nudger",
-    "system_state_api",
-    "weak_spot_detector",
-    "multi_goal_arbitrator",
-    "routing_decision_logger",
     # Templates that replace an answer the model already produced. See
     # scripted_overrides_enabled() for why this is off rather than on.
     "scripted_overrides",

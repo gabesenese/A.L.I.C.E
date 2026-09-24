@@ -6,8 +6,46 @@ import re
 from typing import Any, Dict, List
 
 
+# Words that frame a recalled fact rather than state one. "Yes, you mentioned
+# your sister visited" should be judged on "sister visited", not failed for
+# "yes" and "mentioned" appearing nowhere in the saved row.
+_FRAMING = {
+    "yes",
+    "you",
+    "your",
+    "you're",
+    "told",
+    "said",
+    "say",
+    "mentioned",
+    "remember",
+    "recall",
+    "that",
+    "this",
+    "the",
+    "and",
+    "with",
+    "for",
+    "about",
+    "from",
+    "have",
+    "has",
+    "had",
+    "was",
+    "were",
+    "are",
+    "but",
+    "not",
+    "saved",
+    "noted",
+    "last",
+    "time",
+    "also",
+}
+
+
 def _tokens(text: str) -> set[str]:
-    return {t for t in re.findall(r"[a-z0-9]+", str(text or "").lower()) if len(t) > 2}
+    return {t for t in re.findall(r"[a-z0-9]+", str(text or "").lower()) if len(t) > 2 and t not in _FRAMING}
 
 
 class MemoryAnswerVerifier:

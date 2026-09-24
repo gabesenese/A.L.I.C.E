@@ -84,6 +84,23 @@ Windows helper:
 dev.bat
 ```
 
+### Choosing the model
+
+The model is set in one place, for every entry point (CLI, UI, API, quality
+harness):
+
+```bash
+export ALICE_MODEL=qwen3:14b                 # default: llama3.1:8b
+export ALICE_OLLAMA_HOST=http://localhost:11434
+export ALICE_NUM_CTX=8192                    # context window sent on every request
+export OLLAMA_API_KEY=...                    # only when ALICE_OLLAMA_HOST is ollama.com
+```
+
+`--model` on the command line overrides `ALICE_MODEL`. Thinking models
+(qwen3, gpt-oss) work: their reasoning is never shown. Cloud models
+(`gpt-oss:120b-cloud`) work through a local Ollama that is signed in. A model
+you name is never swapped for another; if it is not pulled, Alice says so.
+
 ## Optional Dependency Bundles
 
 Install only what you need:

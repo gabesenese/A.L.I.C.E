@@ -1,5 +1,7 @@
 """Unit tests for anti-overclarification policy."""
 
+import pytest
+
 from ai.runtime.anti_overclarification_policy import should_answer_instead_of_clarify
 
 
@@ -36,5 +38,19 @@ def test_read_file_without_target_clarifies():
     assert not should_answer_instead_of_clarify("read a file", "file_operations:read")
 
 
-def test_which_question_always_clarifies():
-    assert not should_answer_instead_of_clarify("which one?", "conversation:question")
+@pytest.mark.parametrize(
+    "text",
+    [
+        "which file should I start with?",
+        "how do I delete a git branch?",
+        "why was that row deleted?",
+        "I am not sure which approach is better, thoughts?",
+        "which one?",
+    ],
+)
+def test_questions_are_answered(text):
+    assert should_answer_instead_of_clarify(text, "conversation:question") is True
+
+
+def test_destructive_instruction_still_asks_first():
+    assert should_answer_instead_of_clarify("delete the old logs", "conversation:general") is False

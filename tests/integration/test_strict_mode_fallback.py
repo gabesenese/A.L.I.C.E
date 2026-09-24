@@ -34,33 +34,23 @@ def test_generate_natural_response_uses_strict_fallback_without_llm():
     alice._alice_direct_phrase = lambda *_args, **_kwargs: None
 
     out = alice._generate_natural_response(
-        alice_response={"type": "operation_success", "operation": "run_tests"},
+        alice_response={"type": "knowledge_answer", "question": "what is it"},
         tone="helpful",
         context=None,
-        user_input="run tests",
+        user_input="what is it",
     )
 
-    assert out == "Completed: run tests."
+    assert out == "I can answer in strict mode, but I need a more specific target question."
 
 
-def test_alice_direct_phrase_handles_operation_and_clarification_types():
+def test_alice_direct_phrase_handles_clarification_type():
     alice = ALICE.__new__(ALICE)
 
-    ok = alice._alice_direct_phrase(
-        "operation_success",
-        {"operation": "delete_note", "details": {"title": "Shopping"}},
-    )
-    fail = alice._alice_direct_phrase(
-        "operation_failure",
-        {"operation": "delete_note", "error": "note not found"},
-    )
     clarify = alice._alice_direct_phrase(
         "clarification_prompt",
         {"options": ["delete one note", "delete all notes"]},
     )
 
-    assert ok == "Done: delete note for 'Shopping'."
-    assert "I couldn't complete delete note" in fail
     assert "Do you mean" in clarify
 
 
@@ -93,5 +83,8 @@ def test_generate_natural_response_uses_scoped_phrase_mode_and_clamp():
         LLMCallType.PHRASE_MICRO,
         LLMCallType.PHRASE_STRUCTURED,
     }
+    # The clamp removes the filler opener and the disclaimer clause and keeps the
+    # answer. This used to assert a 220-character cap, which only held because the
+    # whole reply was being swapped for a short stock line.
     assert "as an ai" not in out.lower()
-    assert len(out) <= 220
+    assert out.startswith("I can definitely help with that")

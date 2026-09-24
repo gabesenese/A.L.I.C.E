@@ -6,9 +6,12 @@ greeting came back as "you're still stuck on that routing refactor" for a user w
 had never mentioned a routing refactor.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
-from ai.runtime.continuity_claim_guard import assess_continuity_claims
+from ai.runtime.boundaries.boundary_factory import _turn_evidence_text
+from ai.runtime.continuity_claim_guard import UNSUPPORTED_CLAIM_REPLY, assess_continuity_claims
 
 
 def assess(text, memory_items=None, operator_state=None):
@@ -131,3 +134,107 @@ def test_grounded_memory_recall_is_not_mistaken_for_invention():
     )
     assert result.unsupported_continuity_claim is False
     assert "sister visited last weekend" in result.text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "That build is taking longer than usual. I would check the test discovery step.",
+        "Local models have gotten a lot better lately.",
+        "Builds are slower these days because of the new linter.",
+    ],
+)
+def test_habit_words_about_things_are_not_claims_about_the_user(text):
+    """Deleting "taking longer than usual" removed the observation that the advice
+    after it depended on."""
+    result = assess(text)
+    assert result.text == text
+    assert result.unsupported_continuity_claim is False
+
+
+def test_habit_words_about_the_user_still_need_evidence():
+    result = assess("You're up later than usual. The build finished.")
+    assert result.unsupported_continuity_claim is True
+    assert result.text == "The build finished."
+
+
+def test_a_callback_to_something_the_user_said_survives():
+    """Turn memories carry no session source, so every in-session callback was
+    deleted: she could not say "you mentioned" about anything."""
+    result = assess_continuity_claims(
+        text="You mentioned the tokenizer, so profile that first.",
+        memory_items=[],
+        operator_state={},
+        evidence_text="the parser is slow and I think it's the tokenizer",
+    )
+    assert result.unsupported_continuity_claim is False
+    assert "tokenizer" in result.text
+
+
+def test_sharing_a_common_word_with_the_user_is_not_evidence():
+    result = assess_continuity_claims(
+        text="You mentioned your sister's wedding, so let's start there.",
+        memory_items=[],
+        operator_state={},
+        evidence_text="so what should I work on first?",
+    )
+    assert result.unsupported_continuity_claim is True
+
+
+def test_this_conversation_does_not_prove_an_earlier_one():
+    result = assess_continuity_claims(
+        text="Last time we talked about the tokenizer, you wanted to rewrite it.",
+        memory_items=[],
+        operator_state={},
+        evidence_text="what about the tokenizer",
+    )
+    assert result.unsupported_continuity_claim is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["If you want, I'll run it now.", "You could batch the writes, but I'd profile first."],
+)
+def test_an_offer_is_not_an_invented_name(text):
+    """The contractions "I'll" and "I'd" were read as proper nouns, so an offer
+    addressed to the user was deleted as naming someone they had never mentioned."""
+    result = assess(text)
+    assert result.text == text
+    assert result.unsupported_continuity_claim is False
+
+
+def test_a_reply_that_was_all_invention_is_not_replaced_by_a_boot_banner():
+    """It used to become "I am here. No active task is loaded yet...", mid-conversation."""
+    result = assess("We were discussing the memory rewrite.")
+    assert result.unsupported_continuity_claim is True
+    assert result.text == UNSUPPORTED_CLAIM_REPLY
+
+
+def test_what_the_user_said_earlier_in_the_conversation_is_evidence():
+    alice = SimpleNamespace(
+        llm=SimpleNamespace(
+            conversation_history=[
+                {"role": "user", "content": "the parser is slow, I think it's the tokenizer"},
+                {"role": "assistant", "content": "Could be the regex backtracking."},
+            ]
+        )
+    )
+    req = SimpleNamespace(user_input="what would you do first?", tool_result=None)
+    evidence = _turn_evidence_text(req, alice)
+    assert "tokenizer" in evidence
+    assert "backtracking" not in evidence
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "You could use Postgres here.",
+        "If you need full-text search, SQLite has FTS5.",
+        "You might try Redis for the cache.",
+        "You'd want Docker for that.",
+    ],
+)
+def test_advice_naming_a_tool_is_not_an_invented_memory(text):
+    result = assess(text)
+
+    assert result.text == text

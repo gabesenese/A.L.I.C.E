@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+import pytest
+
+from ai.contracts import MemoryResult, ResponseOutput, RouterDecision, VerifierRequest
 from ai.memory.personal_memory import PersonalMemoryStore
 from ai.runtime.alice_contract_factory import build_runtime_boundaries
 from ai.runtime.contract_pipeline import ContractPipeline
@@ -142,6 +145,15 @@ class _FakePlugins:
                 "response": "Recovered weather data.",
                 "plugin": "WeatherPlugin",
                 "confidence": 0.88,
+            }
+
+        if "weather in atlantis" in query_text:
+            return {
+                "success": False,
+                "response": "",
+                "plugin": "WeatherPlugin",
+                "confidence": 0.2,
+                "error": "unknown_location",
             }
 
         if "weather fail hard" in query_text:
@@ -323,11 +335,11 @@ def test_contract_pipeline_defers_current_world_summary_without_live_sources():
     assert result.metadata["route"] == "local"
     assert result.metadata["intent"] == "freshness:current_events"
     _assert_decision_band_is_consistent(result, "execute")
-    assert result.metadata["requires_follow_up"] is True
     assert result.metadata["verification"]["accepted"] is True
     response = result.response_text.lower()
     assert "live sources" in response
     assert "model memory" in response
+    assert "i can" not in response  # no offer to look it up: there is no news tool
     assert "llm:" not in response
     assert "pandemic" not in response
 
@@ -643,9 +655,59 @@ def test_contract_pipeline_blocks_unverified_llm_codebase_claims():
     assert result.handled is True
     assert result.metadata["route"] == "llm"
     _assert_decision_band_is_consistent(result, "execute")
-    assert result.metadata["verification"]["accepted"] is False
-    assert result.metadata["verification"]["reason"] == "unverified_codebase_claim"
-    assert "file details" in result.response_text.lower() or "inspect" in result.response_text.lower()
+    # The sentence naming files that do not exist is dropped; the rest of the
+    # answer survives instead of being replaced by a canned line.
+    assert "ai/dialogue_management.py" not in result.response_text
+    assert "app/agents.py" not in result.response_text
+    assert result.response_text == "The self_learning directory contains training workflows."
+    assert "inspect <filename>" not in result.response_text
+
+
+def _verify_reply(user_input, reply):
+    boundaries = build_runtime_boundaries(_FakeAlice())
+    return boundaries.verifier.verify(
+        VerifierRequest(
+            user_input=user_input,
+            decision=RouterDecision(route="llm", intent="conversation:question", confidence=0.9),
+            memory=MemoryResult(items=[]),
+            proposed_response=ResponseOutput(text=reply, confidence=0.9),
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "user_input,reply",
+    [
+        (
+            "how do I run a module properly?",
+            "Run it from the working directory with python -m, so the imports resolve.",
+        ),
+        (
+            "where does pytest look for fixtures?",
+            "In conftest.py files, starting at the rootdir and walking down into each directory.",
+        ),
+        (
+            "where does django keep its settings?",
+            "In myproject/settings.py, in the same directory as urls.py, one level below manage.py.",
+        ),
+    ],
+)
+def test_explaining_other_software_is_not_a_claim_about_her_codebase(user_input, reply):
+    """The working directory, conftest.py and manage.py are the subject of the
+    question, not files she claims to have. Each of these was rejected whole and
+    replaced with a line telling the user to type a command."""
+    verdict = _verify_reply(user_input, reply)
+    assert verdict.reason != "unverified_codebase_claim"
+
+
+def test_an_invented_file_in_her_own_workspace_is_still_caught():
+    verdict = _verify_reply(
+        "what does the router do?",
+        "The routing lives in ai/router_core.py in the codebase.",
+    )
+    assert verdict.accepted is False
+    assert verdict.reason == "unverified_codebase_claim"
+    assert verdict.diagnostics["missing_paths"] == ["ai/router_core.py"]
 
 
 def test_contract_pipeline_blocks_unverified_llm_weather_claims():
@@ -1443,3 +1505,243 @@ def test_analyze_missing_file_includes_close_matches_and_workspace_context():
     assert local_execution.get("success") is False
     assert local_execution.get("error") == "target_not_found"
     assert isinstance(local_execution.get("workspace_file_count"), int)
+
+
+def _raise_unavailable(message):
+    import requests
+
+    from ai.core.llm_engine import LLMUnavailableError
+
+    try:
+        raise requests.exceptions.ConnectionError("connection refused")
+    except requests.exceptions.ConnectionError as exc:
+        raise LLMUnavailableError(message) from exc
+
+
+class _DownLlm:
+    def __init__(self, message="Service temporarily unavailable - Ollama not running"):
+        self.message = message
+
+    def chat(self, *_args, **_kwargs):
+        _raise_unavailable(self.message)
+
+
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        ("Service temporarily unavailable - Ollama not running", "Ollama is running"),
+        ("Request timeout - please try again", "didn't answer in time"),
+    ],
+)
+def test_contract_pipeline_names_the_outage_when_the_model_is_down(message, expected):
+    alice = _FakeAlice()
+    alice.llm = _DownLlm(message)
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    replies = [
+        pipeline.run_turn(
+            user_input="what do you think about the router design?", user_id="u1", turn_number=n
+        ).response_text
+        for n in (2, 3)
+    ]
+
+    for reply in replies:
+        assert expected in reply
+        assert "more specific" not in reply
+        assert "didn't follow" not in reply
+
+
+def test_repeated_tool_failure_never_shows_class_names_or_error_codes():
+    from ai.runtime.fallback_policy import get_retry_memory
+
+    get_retry_memory().clear("default")
+    alice = _FakeAlice()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    replies = [
+        pipeline.run_turn(user_input="what's the weather in atlantis?", user_id="u1", turn_number=n).response_text
+        for n in (2, 3, 4)
+    ]
+
+    assert replies[0] == "I couldn't find that location. Could you try a nearby city?"
+    assert replies[1] == replies[0]
+    for reply in replies:
+        assert "Plugin" not in reply
+        assert "unknown_location" not in reply
+        assert "Weather data unavailable" not in reply
+    get_retry_memory().clear("default")
+
+
+class _GreetingNlp(_FakeNlp):
+    def process(self, text):
+        if str(text).strip().lower() in {"hey", "hi"}:
+            return _NlpResult(intent="greeting", intent_confidence=0.9, keywords=[])
+        return super().process(text)
+
+
+class _HistoryLlm:
+    def __init__(self):
+        self.calls = []
+
+    def chat(self, user_input, use_history=True, **kwargs):
+        self.calls.append((user_input, use_history))
+        return "Hey Gabriel. Still on the router?"
+
+
+def test_mid_conversation_greeting_is_answered_by_the_model_with_history():
+    alice = _FakeAlice()
+    alice.nlp = _GreetingNlp()
+    alice.llm = _HistoryLlm()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="hey", user_id="u1", turn_number=20)
+
+    assert result.response_text == "Hey Gabriel. Still on the router?"
+    assert ("hey", True) in alice.llm.calls
+
+
+class _ToolLlm:
+    """Asks for one workspace listing, then answers from it."""
+
+    def __init__(self):
+        self.conversation_history = [
+            {"role": "user", "content": "I'm refactoring the runtime package."},
+            {"role": "assistant", "content": "Good, it has grown."},
+        ]
+        self.tool_calls_seen = []
+
+    def chat(self, user_input, use_history=True, **kwargs):
+        return "LLM:" + user_input
+
+    def record_exchange(self, user_input, reply):
+        self.conversation_history += [
+            {"role": "user", "content": user_input},
+            {"role": "assistant", "content": reply},
+        ]
+
+    def chat_with_tools(self, messages, tools=None, **kwargs):
+        from ai.core.llm_engine import ChatResponse, ToolCall
+
+        self.tool_calls_seen.append(list(messages))
+        if len(self.tool_calls_seen) == 1:
+            return ChatResponse(
+                content="", tool_calls=[ToolCall(name="list_workspace_files", arguments={"path": "ai"})]
+            )
+        return ChatResponse(content="The ai folder holds the core, runtime and memory packages.")
+
+
+def test_tool_turns_see_the_conversation_and_are_remembered():
+    alice = _FakeAlice()
+    alice.llm = _ToolLlm()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="which files are in the ai folder?", user_id="u1", turn_number=3)
+
+    first_request = alice.llm.tool_calls_seen[0]
+    assert {"role": "user", "content": "I'm refactoring the runtime package."} in first_request
+    assert "runtime and memory packages" in result.response_text
+    assert alice.llm.conversation_history[-2] == {"role": "user", "content": "which files are in the ai folder?"}
+    assert "runtime and memory packages" in alice.llm.conversation_history[-1]["content"]
+
+
+class _NarratingLlm:
+    """Phrases tool results; records what it was shown."""
+
+    def __init__(self, reply):
+        self.reply = reply
+        self.calls = []
+
+    def chat(self, user_input, use_history=True, **kwargs):
+        self.calls.append({"user_input": user_input, "use_history": use_history, **kwargs})
+        return self.reply
+
+
+def test_tool_turn_is_answered_by_the_model_from_the_tool_data():
+    alice = _FakeAlice()
+    alice.llm = _NarratingLlm("Around 22 degrees and partly cloudy in Kitchener right now.")
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="weather nested", user_id="u1", turn_number=1)
+
+    assert result.response_text == "Around 22 degrees and partly cloudy in Kitchener right now."
+    (call,) = alice.llm.calls
+    assert call["user_input"] == "weather nested"
+    assert call["record_history"] is False
+    assert '"temperature": 22' in call["context"]
+    assert "partly cloudy" in call["context"]
+    assert "message_code" not in call["context"]
+
+
+def test_tool_narration_that_invents_a_number_falls_back_to_the_tool_text():
+    alice = _FakeAlice()
+    alice.llm = _NarratingLlm("It's 30 degrees and sunny in Kitchener.")
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="weather nested", user_id="u1", turn_number=1)
+
+    assert "30" not in result.response_text
+    assert result.response_text.startswith("WEATHER_REPORT")
+
+
+def test_tool_turn_keeps_the_tool_text_when_the_model_is_down():
+    alice = _FakeAlice()
+    alice.llm = _DownLlm()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="weather in boston", user_id="u1", turn_number=1)
+
+    assert "sunny" in result.response_text.lower()
+
+
+def test_tool_facts_include_payload_kept_beside_the_response():
+    from ai.runtime.boundaries.boundary_factory import _tool_facts_block
+
+    facts = _tool_facts_block(
+        {
+            "success": True,
+            "response": "Found 2 files in .",
+            "plugin": "FileOperationsPlugin",
+            "files": [{"name": "todo.txt"}, {"name": "budget.xlsx"}],
+            "count": 2,
+        }
+    )
+
+    assert "todo.txt" in facts and "budget.xlsx" in facts
+    assert "FileOperationsPlugin" not in facts
+
+
+def test_tool_grounding_allows_rounding_and_twelve_hour_times_but_not_new_numbers():
+    from ai.runtime.boundaries.boundary_factory import _numbers_grounded
+
+    source = '{"temperature": 21.6, "start": "2026-09-15T14:00:00"}'
+    assert _numbers_grounded("About 22 degrees, and the dentist is at 2pm.", source)
+    assert not _numbers_grounded("About 25 degrees.", source)
+
+
+class _HedgingLlm:
+    def __init__(self):
+        self.calls = []
+        self.amended = []
+
+    def chat(self, user_input, use_history=True, **kwargs):
+        self.calls.append({"user_input": user_input, "use_history": use_history, **kwargs})
+        if len(self.calls) == 1:
+            return "I'm not sure, it depends on a lot of things."
+        return "Postgres. The JSON columns cover what you wanted Mongo for."
+
+    def amend_last_reply(self, text):
+        self.amended.append(text)
+
+
+def test_hedge_retry_keeps_the_conversation_and_is_not_recorded_twice():
+    alice = _FakeAlice()
+    alice.llm = _HedgingLlm()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="so which one would you pick for this?", user_id="u1", turn_number=4)
+
+    retry = alice.llm.calls[-1]
+    assert retry["use_history"] is True
+    assert retry["record_history"] is False
+    assert alice.llm.amended == ["Postgres. The JSON columns cover what you wanted Mongo for."]
+    assert result.response_text.startswith("Postgres.")

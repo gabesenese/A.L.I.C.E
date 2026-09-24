@@ -517,39 +517,6 @@ class ContractPipeline:
 
         stages.append(self._stage("input", "ok", {"length": len(user_input)}))
 
-        # Meta-query: weak spots / routing report
-        _low = user_input.lower().strip()
-        if any(
-            phrase in _low
-            for phrase in (
-                "weak spot",
-                "what are your weak spots",
-                "routing report",
-                "show me your failures",
-                "alice report",
-                "failure report",
-                "where are you failing",
-                "what do you struggle",
-            )
-        ):
-            try:
-                from ai.learning.failure_eval_converter import (
-                    get_failure_eval_converter,
-                )
-
-                _report = get_failure_eval_converter().weak_spot_report()
-            except Exception as e:
-                _report = f"Could not generate report: {e}"
-            return PipelineResult(
-                handled=True,
-                response_text=f"Here's my current routing performance:\n\n```\n{_report}\n```",
-                metadata={
-                    "source": "weak_spot_report",
-                    "trace_id": trace_id,
-                    "stages": stages,
-                },
-            )
-
         user_state_snapshot = self.user_state_model.get_or_create(user_id)
         companion_state = self.companion_runtime.start_turn(
             user_id=user_id,
@@ -883,7 +850,6 @@ class ContractPipeline:
                 str(getattr(decision, "intent", "") or "").endswith("greeting")
                 or str(getattr(decision, "intent", "") or "") == "greeting"
             )
-            is_conversational_turn = str(getattr(decision, "intent", "") or "").startswith("conversation:")
             if is_greeting_turn or (verification and str(verification.reason or "") == "unsupported_continuity_claim"):
                 op_state = dict((decision.metadata or {}).get("operator_state") or {})
                 if not op_state.get("active_objective"):
@@ -901,10 +867,9 @@ class ContractPipeline:
                 )
                 self._greeting_session_state_by_user[str(user_id)] = dict(greeting.session_state)
                 response_text = str(greeting.text or "").strip()
-            elif is_conversational_turn and response_text:
-                pass  # keep the LLM's response — verification errors don't apply to casual conversation
-            else:
-                pass  # respond_phase already set a specific fallback for this failure
+            # Otherwise respond_phase has already chosen the reply. Restoring the
+            # rejected text here would publish exactly the claim the verifier
+            # caught (a made-up path, an invented weather figure).
             self._maybe_record_behavior_event(
                 user_id=user_id,
                 source="verification_failure",
@@ -971,10 +936,9 @@ class ContractPipeline:
                 action_discipline=action_discipline,
             )
 
-        if str((respond_metadata or {}).get("type") or "") in {
-            "fallback",
-            "code_request_fallback",
-        } or str((respond_metadata or {}).get("fallback") or ""):
+        if str((respond_metadata or {}).get("type") or "") == "fallback" or str(
+            (respond_metadata or {}).get("fallback") or ""
+        ):
             self._append_routing_failure(
                 trace_id=trace_id,
                 user_input=user_input,
@@ -1206,19 +1170,11 @@ class ContractPipeline:
 
             wm = get_world_model()
             intent_str = str(decision.intent or "")
+            # A failed fetch used to get a "(last updated ~Nm ago)" prefix or a
+            # "(Weather data unavailable ...)" tail bolted onto the failure
+            # message, which already says what went wrong: two voices, one reply.
             if tool_result and tool_result.success and intent_str.startswith("weather:"):
                 wm.record_data_fetch("weather")
-            elif intent_str.startswith("weather:") and not (tool_result and tool_result.success):
-                # Tool didn't run or failed — qualify if we have cached data with age
-                age = wm.data_age_seconds("weather")
-                if age is not None:
-                    mins = int(age / 60)
-                    if mins > 0 and response_text and "(last updated" not in response_text:
-                        response_text = f"(last updated ~{mins}m ago) {response_text}"
-                elif wm.is_data_stale("weather"):
-                    # No cached data at all and plugin failed — add a retry suggestion
-                    if response_text and "try again" not in response_text.lower():
-                        response_text += " (Weather data unavailable — try again in a moment.)"
         except Exception:
             pass
 
@@ -1285,7 +1241,7 @@ class ContractPipeline:
             )
 
         memory_payload = {
-            "content": f"user={user_input}\nassistant={response_text}",
+            "content": f"User said: {user_input}\nAlice replied: {response_text}",
             "intent": decision.intent,
             "route": decision.route,
             "confidence": decision.confidence,

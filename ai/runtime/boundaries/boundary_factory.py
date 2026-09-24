@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
 from typing import Any, Dict, List
 
+from ai.core.llm_engine import LLMUnavailableError
 from ai.core.routing.route_arbiter import RouteArbiter
 from ai.core.routing.turn_segmenter import TurnSegmenter
 from ai.contracts import (
@@ -99,18 +101,51 @@ def _is_workspace_turn(req: Any) -> bool:
 
 
 _REQUEST_VERBS = (
-    "run", "create", "edit", "write", "make", "add", "list", "find", "search", "show",
-    "read", "open", "check", "look", "fix", "delete", "remove", "install", "build", "test",
+    "run",
+    "create",
+    "edit",
+    "write",
+    "make",
+    "add",
+    "list",
+    "find",
+    "search",
+    "show",
+    "read",
+    "open",
+    "check",
+    "look",
+    "fix",
+    "delete",
+    "remove",
+    "install",
+    "build",
+    "test",
 )
 
 
-def _turn_evidence_text(req: Any) -> str:
+# The recent transcript that counts as evidence of what the user has said: the
+# last twenty exchanges.
+_SESSION_EVIDENCE_MESSAGES = 40
+
+
+def _turn_evidence_text(req: Any, alice: Any = None) -> str:
     """Everything Alice legitimately knows this turn: what was said, and what tools returned.
 
     A name she uses must come from somewhere. Without this, a city returned by the
     weather tool would look as invented as a city she made up.
+
+    What the user said earlier in this conversation counts too. Without it, "you
+    mentioned the tokenizer" two turns after they did read as an invention.
     """
     parts = [str(getattr(req, "user_input", "") or "")]
+    history = getattr(getattr(alice, "llm", None), "conversation_history", None)
+    if isinstance(history, list):
+        parts.extend(
+            str(message.get("content") or "")
+            for message in history[-_SESSION_EVIDENCE_MESSAGES:]
+            if isinstance(message, dict) and message.get("role") == "user"
+        )
     tool_result = getattr(req, "tool_result", None)
     if tool_result is not None:
         parts.append(str(getattr(tool_result, "response", "") or ""))
@@ -164,7 +199,42 @@ def _may_reach_for_tools(req: Any) -> bool:
     return str(getattr(req.decision, "route", "") or "") == "llm"
 
 
-def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any]) -> Any:
+# Enough turns to resolve "that file" or "the one before", without spending the
+# context window on the whole sitting.
+_TOOL_LOOP_HISTORY_MESSAGES = 12
+
+
+def _recent_history(llm: Any) -> List[Dict[str, Any]]:
+    history = getattr(llm, "conversation_history", None)
+    if not isinstance(history, list):
+        return []
+    return [dict(turn) for turn in history[-_TOOL_LOOP_HISTORY_MESSAGES:] if isinstance(turn, dict)]
+
+
+def _record_tool_turn(alice: Any, req: Any, output: Any) -> None:
+    """Put a tool turn in the transcript, like any other exchange.
+
+    Only the plain chat path recorded turns, so after "list the files in ai/"
+    the next message's model call had no idea the listing had happened.
+    """
+    llm = getattr(alice, "llm", None)
+    text = str(getattr(output, "text", "") or "").strip()
+    if llm is None or not text or not hasattr(llm, "record_exchange"):
+        return
+    try:
+        llm.record_exchange(str(req.user_input or ""), text)
+    except Exception as exc:
+        _logger.debug("Could not record tool turn: %s", exc)
+
+
+def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any], context: str = "") -> Any:
+    output = _run_tool_grounded_answer(alice, req, operator_state, context)
+    if output is not None:
+        _record_tool_turn(alice, req, output)
+    return output
+
+
+def _run_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any], context: str = "") -> Any:
     """Let the model reach for a real tool before falling back to plain generation.
 
     Returns None whenever the loop is unavailable or chose not to act, so every
@@ -195,7 +265,9 @@ def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, An
                 }
             ),
         )
-        result = loop.run(str(req.user_input or ""))
+        # The same date, memory and goals the conversational path sees; without
+        # them a tool turn answered "what should I work on today?" blind.
+        result = loop.run(str(req.user_input or ""), context=context or None, history=_recent_history(llm))
     except Exception as exc:
         _logger.warning("Tool grounded answer unavailable, falling back to generation: %s", exc)
         return None
@@ -392,14 +464,43 @@ def _resolve_pending_action(alice: Any, req: Any, user_id: str) -> Any:
 
 
 _APPROVAL_PHRASES = {
-    "yes", "y", "yeah", "yep", "yup", "ok", "okay", "sure", "do it", "go ahead",
-    "proceed", "confirm", "confirmed", "approved", "go for it", "sounds good",
-    "please do", "run it", "do that", "make it so",
+    "yes",
+    "y",
+    "yeah",
+    "yep",
+    "yup",
+    "ok",
+    "okay",
+    "sure",
+    "do it",
+    "go ahead",
+    "proceed",
+    "confirm",
+    "confirmed",
+    "approved",
+    "go for it",
+    "sounds good",
+    "please do",
+    "run it",
+    "do that",
+    "make it so",
 }
 
 _REJECTION_PHRASES = {
-    "no", "nope", "nah", "don't", "dont", "cancel", "stop", "skip it", "leave it",
-    "never mind", "nevermind", "forget it", "no thanks", "don't do that",
+    "no",
+    "nope",
+    "nah",
+    "don't",
+    "dont",
+    "cancel",
+    "stop",
+    "skip it",
+    "leave it",
+    "never mind",
+    "nevermind",
+    "forget it",
+    "no thanks",
+    "don't do that",
 }
 
 
@@ -409,6 +510,88 @@ def _is_approval_phrase(text: str) -> bool:
 
 def _is_rejection_phrase(text: str) -> bool:
     return str(text or "").strip().strip(".!").lower() in _REJECTION_PHRASES
+
+
+def _llm_unavailable_text(exc: LLMUnavailableError) -> str:
+    """One sentence on what is down and what fixes it, in the user's terms."""
+    reason = str(getattr(exc, "reason", "") or "")
+    model = str(getattr(exc, "model", "") or "")
+    if reason == "rate_limited":
+        return (
+            "I've hit the cloud model's usage limit, so I can't answer that right now. "
+            "It resets on its own, or you can point ALICE_MODEL at a local model."
+        )
+    if reason == "model_missing":
+        name = model or "my model"
+        return f"{name} isn't installed, so I can't answer yet. Run `ollama pull {name}`, then ask again."
+    if reason == "timeout" or "timeout" in str(exc).lower():
+        return "My language model didn't answer in time, so I can't answer that yet. Give it a moment and ask again."
+    return (
+        "I can't reach my language model, so I can't answer that right now. "
+        "Check that Ollama is running (`ollama serve`), then ask again."
+    )
+
+
+# Keys in a plugin's data dict that describe the plumbing, not the answer.
+_TOOL_PLUMBING_KEYS = frozenset({"formulate", "message_code", "plugin_type", "use_fallback_message"})
+# The result envelope around a plugin's answer; "response"/"message" go in as the summary.
+_TOOL_ENVELOPE_KEYS = frozenset(
+    {"response", "message", "success", "plugin", "confidence", "data", "error", "operator_context"}
+)
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _tool_facts_block(tool_payload: Dict[str, Any], *, limit: int = 6000) -> str:
+    """The structured result a tool returned, as the model will read it."""
+    nested = tool_payload.get("data") if isinstance(tool_payload.get("data"), dict) else {}
+    # Plugins disagree on where the payload goes: weather nests it under "data",
+    # file operations puts "files" and "content" beside "response".
+    facts: Dict[str, Any] = {
+        k: v for k, v in tool_payload.items() if k not in _TOOL_ENVELOPE_KEYS and k not in _TOOL_PLUMBING_KEYS and v
+    }
+    facts.update({k: v for k, v in (nested or {}).items() if k not in _TOOL_PLUMBING_KEYS})
+    if not facts:
+        return ""
+    text = json.dumps(facts, default=str, ensure_ascii=False)
+    return text if len(text) <= limit else text[:limit] + " ...(truncated)"
+
+
+_TURN_ROW = re.compile(r"^(?:user=|User said: )(.*?)\n(?:assistant=|Alice replied: )(.*)$", re.DOTALL)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def _first_sentence(text: str, limit: int) -> str:
+    # Split at a sentence end followed by space, so "app.py" and "3.5" survive.
+    sentence = _SENTENCE_END.split(" ".join(str(text or "").split()), maxsplit=1)[0]
+    if len(sentence) <= limit:
+        return sentence
+    return sentence[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def _memory_line(content: str) -> str:
+    """One recalled memory as a line the model can read as something that happened."""
+    turn = _TURN_ROW.match(str(content or "").strip())
+    if turn is None:
+        return _first_sentence(content, 160)
+    said = _first_sentence(turn.group(1), 120)
+    replied = _first_sentence(turn.group(2), 100)
+    return f'They said "{said}"; you answered "{replied}"' if replied else f'They said "{said}"'
+
+
+def _numbers_grounded(reply: str, *sources: str) -> bool:
+    """Every number in the reply appears in what the tool returned (rounding allowed).
+
+    Weather figures are the canonical fabrication: a model that paraphrases a
+    tool result is allowed to change the words, never the numbers.
+    """
+    known: set[float] = set()
+    for source in sources:
+        for token in _NUMBER.findall(str(source or "")):
+            value = float(token)
+            known.update({value, float(round(value))})
+            if 13 <= value <= 23 and value.is_integer():
+                known.add(value - 12)  # "14:00" may be said as "2pm"
+    return all(float(token) in known for token in _NUMBER.findall(str(reply or "")))
 
 
 def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
@@ -495,6 +678,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         for match in _directory_claim_pattern.finditer(str(text or "")):
             candidate = _normalize_path(match.group(1))
             if not candidate:
+                continue
+            # A directory claim names a path or an identifier. "The working
+            # directory" and "your home directory" are English, and reading the
+            # adjective as a claimed folder rejected every answer that used one.
+            if "/" not in candidate and "_" not in candidate:
                 continue
             first_token = candidate.split("/", 1)[0].lower()
             if first_token in _generic_directory_terms:
@@ -1145,10 +1333,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             if not content or content in _seen:
                 continue
             _seen.add(content)
-            # Trim long memories to first sentence
-            first_sentence = content.split(".")[0].strip()
-            if first_sentence and len(first_sentence) > 10:
-                mem_lines.append(f"- {first_sentence[:120]}")
+            line = _memory_line(content)
+            if len(line) > 10:
+                mem_lines.append(f"- {line}")
             if len(mem_lines) >= 3:
                 break
         if mem_lines:
@@ -1390,11 +1577,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         explicit_paths = _extract_code_path_claims(text)
         explicit_dirs = _extract_directory_claims(text)
+        code_request = _looks_like_code_request(user_text)
 
         # Only enforce codebase claim verification when the user asked for code access
         # or the assistant claimed concrete paths/directories.
         if not explicit_paths and not explicit_dirs:
-            if not _looks_like_code_request(user_text):
+            if not code_request:
                 return {}
 
         if not any(
@@ -1441,13 +1629,25 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 return True
             return any(known.endswith(normalized) or normalized.endswith(known) for known in available_paths_lower)
 
+        # On a question that was not about her own code, a file is a claim about this
+        # workspace only when its path is rooted in one of its directories. manage.py
+        # in an answer about Django, or conftest.py in one about pytest, is the
+        # ecosystem being explained, not a file she says she has.
+        if not code_request:
+            explicit_paths = [
+                path
+                for path in explicit_paths
+                if "/" in _normalize_path(path) and _normalize_path(path).split("/", 1)[0].lower() in top_level_dirs
+            ]
+            explicit_dirs = []
+
         missing_paths: List[str] = []
-        for claimed_path in _extract_code_path_claims(text):
+        for claimed_path in explicit_paths:
             if not _path_exists(claimed_path):
                 missing_paths.append(claimed_path)
 
         missing_directories: List[str] = []
-        for claimed_dir in _extract_directory_claims(text):
+        for claimed_dir in explicit_dirs:
             first_segment = _normalize_path(claimed_dir).split("/", 1)[0].lower()
             if first_segment and first_segment not in top_level_dirs:
                 missing_directories.append(claimed_dir)
@@ -2568,6 +2768,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 action=invocation.action,
                 data={
                     "response": str(local.get("response") or ""),
+                    "file_text": str(local.get("file_text") or ""),
                     "operator_context": dict(local.get("operator_context") or {}),
                     "local_execution": dict(local.get("local_execution") or {}),
                     "close_matches": list((local.get("operator_context") or {}).get("close_matches") or []),
@@ -2649,6 +2850,113 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
         return tool_result
 
+    def _narrate_tool_result(req: ResponseRequest, tool_payload: Dict[str, Any], tool_response: str) -> str:
+        llm = getattr(alice, "llm", None)
+        if llm is None:
+            return tool_response
+        facts = _tool_facts_block(tool_payload)
+        context = (
+            f"You just ran {req.tool_result.tool_name or 'a tool'} for the user's message. "
+            "Answer them in your own words from this result, in a sentence or two, "
+            "or a short list if they asked for a list. "
+            "Use only what the result contains; do not add numbers, names or details it does not have.\n"
+            f"Tool summary: {tool_response}"
+        )
+        if facts:
+            context += f"\nTool data: {facts}"
+        try:
+            reply = str(
+                llm.chat(req.user_input, use_history=True, record_history=False, context=context, intent="tool_wrap")
+                or ""
+            ).strip()
+        except Exception as exc:
+            _logger.debug("tool narration skipped: %s", exc)
+            return tool_response
+        if not reply:
+            return tool_response
+        if not _numbers_grounded(reply, facts, tool_response, req.user_input):
+            _logger.info("tool narration dropped: states a number the tool did not return")
+            return tool_response
+        return reply
+
+    def _turn_context(req: ResponseRequest, operator_state: Dict[str, Any]) -> str:
+        try:
+            return _build_companion_context(
+                memory_items=list(req.memory.items or []),
+                operator_state=operator_state,
+                alice=alice,
+                intent=str(req.decision.intent or ""),
+                user_input=str(req.user_input or ""),
+            )
+        except Exception as exc:
+            _logger.debug("companion context unavailable: %s", exc)
+            return ""
+
+    def _narrate_memory_recall(req: ResponseRequest, recalled: str) -> str:
+        # The saved rows answer the question; the model says it the way a
+        # person would. Whatever it says is checked against the rows, and the
+        # rows themselves stand when it adds anything they do not contain.
+        llm = getattr(alice, "llm", None)
+        if llm is None:
+            return ""
+        context = (
+            "The user is asking what you remember. These are the saved memories that match, "
+            "and the only facts you have:\n"
+            f"{recalled}\n"
+            "Answer them in your own words, in a sentence or two. "
+            "If these do not answer what they asked, say so plainly. "
+            "Do not add details the memories do not contain."
+        )
+        try:
+            reply = str(
+                llm.chat(
+                    req.user_input, use_history=True, record_history=False, context=context, intent="memory_recall"
+                )
+                or ""
+            ).strip()
+        except Exception as exc:
+            _logger.debug("memory narration skipped: %s", exc)
+            return ""
+        if not reply:
+            return ""
+        evidence = [{"content": recalled}]
+        if not memory_answer_verifier.verify_answer(answer_text=reply, evidence_items=evidence).get("accepted"):
+            _logger.info("memory narration dropped: states something the saved memories do not")
+            return ""
+        if not _numbers_grounded(reply, recalled):
+            _logger.info("memory narration dropped: states a number the saved memories do not")
+            return ""
+        return reply
+
+    def _phrase_clarification(req: ResponseRequest) -> str:
+        # The question names what was unclear in what they said; the fixed
+        # questions are only for when the model is not there to ask it.
+        llm = getattr(alice, "llm", None)
+        if llm is None:
+            return ""
+        meta = dict(req.decision.metadata or {})
+        ambiguity = ""
+        if meta.get("pronouns"):
+            ambiguity += f"\nUnclear reference: {', '.join(str(p) for p in meta['pronouns'])}"
+        if meta.get("options"):
+            ambiguity += f"\nIt could mean: {'; '.join(str(o) for o in meta['options'][:4])}"
+        context = (
+            "You are not sure what the user wants from this message." + ambiguity + "\n"
+            "Ask them one short question that names the specific thing that is unclear. "
+            "Reply with only the question."
+        )
+        try:
+            reply = str(
+                llm.chat(req.user_input, use_history=True, record_history=False, context=context, intent="clarify")
+                or ""
+            ).strip()
+        except Exception as exc:
+            _logger.debug("clarification phrasing skipped: %s", exc)
+            return ""
+        if not reply.endswith("?") or len(reply.split()) > 30:
+            return ""
+        return reply
+
     def _generate(req: ResponseRequest) -> ResponseOutput:
         if req.tool_result is not None:
             try:
@@ -2662,57 +2970,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         operator_state = dict((req.decision.metadata or {}).get("operator_state") or {})
         greeting_turn = decision_intent.endswith("greeting") or decision_intent == "greeting"
 
-        def _build_grounded_greeting() -> ResponseOutput:
-            session_state = dict(getattr(alice, "_greeting_session_state", {}) or {})
-            user_name = str(getattr(alice, "user_name", "") or "")
-            greeting = render_grounded_greeting(
-                user_name=user_name,
-                operator_state=operator_state,
-                session_state=session_state,
-                user_input=req.user_input,
-                llm_generate=(
-                    (
-                        lambda prompt=None, **_kwargs: str(
-                            alice.llm.chat(str(prompt or ""), intent="greeting", use_history=False) or ""
-                        )
-                    )
-                    if getattr(alice, "llm", None)
-                    else None
-                ),
-            )
-            setattr(alice, "_greeting_session_state", dict(greeting.session_state))
-            return ResponseOutput(
-                text=greeting.text,
-                confidence=0.92,
-                metadata={
-                    "type": "greeting_grounded",
-                    "greeting_memory_policy": "active_state_only",
-                    "broad_memory_suppressed": True,
-                    "active_objective_used": bool(greeting.active_objective_used),
-                    "greeting_style": str(greeting.greeting_style),
-                    "suppressed_project_menu": bool(greeting.suppressed_project_menu),
-                    "repeated_greeting": bool(greeting.repeated_greeting),
-                    "generated_by": str(greeting.generated_by),
-                    "warmth_level": str(greeting.warmth_level),
-                    "companion_tone": bool(greeting.companion_tone),
-                    "assistant_like_prompt_suppressed": bool(greeting.assistant_like_prompt_suppressed),
-                    "validation_passed": bool(greeting.validation_passed),
-                    "validation_reasons": list(greeting.validation_reasons),
-                    "greeting_reason": str(greeting.reason),
-                    "continuity_guard_applied": bool(greeting.continuity_guard_applied),
-                    "continuity_claims": dict(greeting.continuity_claims or {}),
-                    "llm_candidate_rejected": bool(greeting.llm_candidate_rejected),
-                },
-            )
-
         # An outstanding permission request owns the next turn: a bare "yes" means
         # that action and nothing else.
         settled = _resolve_pending_action(alice, req, str((req.metadata or {}).get("user_id") or "default"))
         if settled is not None:
             return settled
-
-        if greeting_turn:
-            return _build_grounded_greeting()
 
         if req.decision.decision_band == "refuse" or req.decision.route == "refuse":
             refusal_text = _surface_text(
@@ -2762,7 +3024,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if _may_reach_for_tools(req):
-            grounded_local = _try_tool_grounded_answer(alice, req, operator_state)
+            grounded_local = _try_tool_grounded_answer(alice, req, operator_state, _turn_context(req, operator_state))
             if grounded_local is not None:
                 return grounded_local
 
@@ -2832,6 +3094,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             if req.tool_result and req.tool_result.success:
                 local_payload = dict(req.tool_result.data or {})
                 local_response = str(local_payload.get("response") or "").strip()
+                file_text = str(local_payload.get("file_text") or "")
+                if local_response and file_text:
+                    inspected = str((local_payload.get("local_execution") or {}).get("inspected_file") or "")
+                    local_response = _narrate_tool_result(req, {"file": inspected, "source": file_text}, local_response)
                 if local_response:
                     return ResponseOutput(
                         text=_surface_text(
@@ -2865,27 +3131,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     metadata={"type": "code_request"},
                 )
 
-            fallback = _surface_text(
-                "Yes, I can analyze Alice's current codebase. I will start by listing the main files and then inspect the core runtime routing paths.",
-                user_input=req.user_input,
-                intent=req.decision.intent,
-                route="contract_code_request",
-            )
-            return ResponseOutput(
-                text=fallback,
-                confidence=0.75,
-                requires_follow_up=False,
-                metadata={"type": "code_request_fallback"},
-            )
+            # Nothing handled it locally: fall through, so the tool loop can go
+            # and look instead of a sentence promising that she will.
 
         if req.decision.intent == "freshness:current_events":
             payload = _freshness_required_payload(req.user_input)
-            follow_up_question = _surface_text(
-                _formulate_freshness_guard_response(f"{req.user_input}\nrequested_focus=follow_up_slot"),
-                user_input=req.user_input,
-                intent=req.decision.intent,
-                route="contract_freshness_guard",
-            )
             text = _surface_text(
                 _formulate_freshness_guard_response(req.user_input),
                 user_input=req.user_input,
@@ -2895,13 +3145,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return ResponseOutput(
                 text=text,
                 confidence=0.99,
-                requires_follow_up=True,
-                follow_up_question=follow_up_question,
                 metadata={
                     "type": "freshness_guard",
                     "requires_live_sources": True,
                     "freshness_payload": payload,
-                    "follow_up_question": follow_up_question,
                 },
             )
 
@@ -2913,7 +3160,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     re.IGNORECASE,
                 )
             )
-            clarify_base = (
+            clarify_base = _phrase_clarification(req) or (
                 "Which file should I inspect?" if local_file_q else "What exact result should I produce next?"
             )
             clarify_text = _surface_text(
@@ -2926,12 +3173,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 text=clarify_text,
                 confidence=0.6,
                 requires_follow_up=True,
-                follow_up_question=_surface_text(
-                    "What exact result do you want?",
-                    user_input=req.user_input,
-                    intent=req.decision.intent,
-                    route="contract_clarification",
-                ),
+                follow_up_question=clarify_text,
                 metadata={"type": "clarification"},
             )
 
@@ -2982,29 +3224,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 except Exception:
                     pass
 
-                # Add a conversational layer via LLM, but the data string must be
-                # used verbatim — the LLM may only append a natural follow-up.
-                is_weather_turn = str(req.decision.intent or "").startswith("weather:") or str(
-                    req.tool_result.tool_name or ""
-                ).lower().startswith("weather")
-                if is_weather_turn:
-                    try:
-                        _weather_prompt = (
-                            f'The user said: "{req.user_input}"\n\n'
-                            f"Weather data:\n{tool_response}\n\n"
-                            "Reply in 1-2 sentences. Copy the weather data above exactly as written — "
-                            "do not rephrase it, do not change any day label, do not add any detail "
-                            "not present in the data. "
-                            "If the user's message includes personal context (like having plans or an event), "
-                            "add one brief natural follow-up question at the end."
-                        )
-                        _llm_text = str(
-                            alice.llm.chat(_weather_prompt, intent="weather_wrap", use_history=False) or ""
-                        ).strip()
-                        if _llm_text:
-                            tool_response = _llm_text
-                    except Exception:
-                        pass
+                # The plugin's string is how a CLI would report the result. The
+                # model gets the structured data and answers the question that was
+                # asked; the plugin string stays as the fallback when the model is
+                # unreachable, says nothing, or states a number the tool did not return.
+                tool_response = _narrate_tool_result(req, tool_payload, tool_response)
 
                 return ResponseOutput(
                     text=_surface_text(
@@ -3098,6 +3322,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "memory_answer_verification": verification,
                     },
                 )
+            if "\n- " in grounded_text:
+                grounded_text = _narrate_memory_recall(req, grounded_text) or grounded_text
             return ResponseOutput(
                 text=grounded_text,
                 confidence=max(0.7, float(verification.get("confidence") or 0.7)),
@@ -3108,7 +3334,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
-        grounded = _try_tool_grounded_answer(alice, req, operator_state)
+        turn_context = _turn_context(req, operator_state)
+        grounded = _try_tool_grounded_answer(alice, req, operator_state, turn_context)
         if grounded is not None:
             return grounded
 
@@ -3116,13 +3343,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if getattr(alice, "llm", None):
             try:
                 _turn_intent = str(req.decision.intent or "")
-                _companion_ctx = _build_companion_context(
-                    memory_items=list(req.memory.items or []),
-                    operator_state=operator_state,
-                    alice=alice,
-                    intent=_turn_intent,
-                    user_input=str(req.user_input or ""),
-                )
+                _companion_ctx = turn_context
                 try:
                     llm_text = str(
                         alice.llm.chat(
@@ -3208,11 +3429,16 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "Do not hedge, deflect, or define terms. "
                         "Do not pad, and do not open with a compliment."
                     )
+                    # The retry keeps the conversation: with history off, "what do you
+                    # make of that?" was answered by a model that had no "that". The
+                    # history already holds the question and the hedge, so the turn
+                    # asks for the take the way a person would, and is not recorded.
                     try:
                         _retry = str(
                             alice.llm.chat(
-                                req.user_input,
-                                use_history=False,
+                                "That didn't answer it. What's your actual take?",
+                                use_history=True,
+                                record_history=False,
                                 context=_retry_ctx,
                                 intent=_turn_intent,
                             )
@@ -3248,6 +3474,15 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     ran_command=False,
                     user_input=str(req.user_input or ""),
                 )
+            except LLMUnavailableError as exc:
+                # Not the user's fault, and asking them to rephrase changes
+                # nothing. Say what is down and what fixes it. This goes out
+                # unpolished: every polish and gate step needs the same model.
+                return ResponseOutput(
+                    text=_llm_unavailable_text(exc),
+                    confidence=0.9,
+                    metadata={"type": "llm_unavailable", "error": str(exc)},
+                )
             except Exception:
                 llm_text = ""
 
@@ -3256,7 +3491,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 text=llm_text,
                 memory_items=list(req.memory.items or []),
                 operator_state=operator_state,
-                evidence_text=_turn_evidence_text(req),
+                evidence_text=_turn_evidence_text(req, alice),
             )
             llm_text = _strip_shaming(str(continuity.text or "").strip())
             low_input = str(req.user_input or "").lower()
@@ -3423,7 +3658,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 text=response_text,
                 memory_items=list(req.memory.items or []),
                 operator_state=operator_state,
-                evidence_text=_turn_evidence_text(req),
+                evidence_text=_turn_evidence_text(req, alice),
             )
             if continuity.unsupported_continuity_claim:
                 return VerifierResult(

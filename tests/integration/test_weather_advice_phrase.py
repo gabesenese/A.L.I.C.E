@@ -72,20 +72,3 @@ def test_weather_advice_forecast_scope_mentions_this_week():
     assert "this week" in out.lower()
     assert "today" not in out.lower()
     assert out.startswith("Yes,")
-
-
-def test_weather_forecast_weekend_unknown_condition_uses_friendly_label():
-    alice = _alice_stub()
-    out = alice._alice_direct_phrase(
-        "weather_forecast",
-        {
-            "location": "Kitchener",
-            "user_input": "what is the weather this weekend",
-            "forecast": [
-                {"date": "2030-06-01", "high": 22, "low": 13, "condition": "unknown"},
-                {"date": "2030-06-02", "high": 21, "low": 12, "condition": "clear sky"},
-            ],
-        },
-    )
-    assert "Unknown" not in out
-    assert "Conditions Unavailable" in out

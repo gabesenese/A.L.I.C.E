@@ -117,7 +117,7 @@ class FallbackGraph:
             ),
         ],
         ("weather", "timeout"): [
-            FallbackStep("retry", "Weather service timed out — retrying.", requires_user=False),
+            FallbackStep("retry", "The weather service didn't answer in time.", requires_user=False),
             FallbackStep(
                 "escalate",
                 "Weather service is unreachable right now. Try again in a moment.",
@@ -132,7 +132,7 @@ class FallbackGraph:
             ),
         ],
         ("weather", "fetch_failed"): [
-            FallbackStep("retry", "Retrying weather fetch.", requires_user=False),
+            FallbackStep("retry", "I couldn't get the weather just now.", requires_user=False),
             FallbackStep(
                 "escalate",
                 "Weather data isn't available right now.",
@@ -161,7 +161,7 @@ class FallbackGraph:
             ),
         ],
         ("default", "timeout"): [
-            FallbackStep("retry", "Request timed out — retrying once.", requires_user=False),
+            FallbackStep("retry", "That request timed out.", requires_user=False),
             FallbackStep(
                 "escalate",
                 "That's taking too long. Try rephrasing.",
@@ -177,7 +177,7 @@ class FallbackGraph:
         ("default", "tool_failed"): [
             FallbackStep(
                 "use_llm",
-                "I couldn't get that from the tool.",
+                "I couldn't get a result for that.",
                 requires_user=False,
             ),
         ],
@@ -268,10 +268,9 @@ class RetryMemory:
         key = self._key(user_id, intent, error_type)
         rec = self._failures.get(key)
         if rec and rec.count >= 3:
-            prefix = str(intent or "").split(":")[0]
             return (
-                f"This {prefix} action has failed {rec.count} times in a row. "
-                "You may want to try a different approach or check your connection."
+                f"That has failed {rec.count} times in a row, so asking the same way again "
+                "probably won't help. Check your connection, or try something different."
             )
         return None
 

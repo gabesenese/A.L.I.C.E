@@ -16,7 +16,7 @@ class _DummyResponse:
             yield item
 
 
-def _build_engine(model: str = "llama3.3:70b") -> LocalLLMEngine:
+def _build_engine(model: str | None = "llama3.3:70b") -> LocalLLMEngine:
     engine = LocalLLMEngine.__new__(LocalLLMEngine)
     engine.config = LLMConfig(model=model, use_fine_tuned=False)
     engine.conversation_history = []
@@ -25,12 +25,22 @@ def _build_engine(model: str = "llama3.3:70b") -> LocalLLMEngine:
     return engine
 
 
-def test_model_falls_back_to_available_local_model():
-    engine = _build_engine(model="llama3.3:70b")
+def test_default_model_falls_back_to_available_local_model(monkeypatch):
+    monkeypatch.delenv("ALICE_MODEL", raising=False)
+    engine = _build_engine(model=None)
+    engine.config.model = "llama3.3:70b"
 
     engine._ensure_active_model_available(["llama3.1:8b"])
 
     assert engine.config.active_model == "llama3.1:8b"
+
+
+def test_a_model_the_user_chose_is_never_swapped():
+    engine = _build_engine(model="qwen3:14b")
+
+    engine._ensure_active_model_available(["llama3.1:8b"])
+
+    assert engine.config.active_model == "qwen3:14b"
 
 
 def test_stream_chat_surfaces_non_200_error(monkeypatch):

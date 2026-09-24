@@ -43,6 +43,9 @@ from ai.core.entity_registry import get_entity_registry
 
 logger = logging.getLogger(__name__)
 
+# How many turns a note stays the referent of a bare "it"/"that".
+_NOTE_ANCHOR_TURNS = 2
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -225,6 +228,20 @@ _ORDINAL_MAP: Dict[str, int] = {
 
 # Pronoun groups
 _GENERIC_PRONOUNS = frozenset(["it", "that", "this", "the result", "this one", "that one"])
+# "this"/"that" before a noun names that noun ("this code", "that bug"); before
+# these words it stands alone and can point back at something ("that is", "this one").
+_BARE_FOLLOWERS = frozenset(
+    ["one", "ones", "is", "was", "please", "again", "to", "for", "in", "on", "up", "now", "and", "too", "out", "back"]
+)
+
+
+def _modifies_noun(text: str, match: "re.Match[str]") -> bool:
+    if match.group(0).lower() not in {"this", "that"}:
+        return False
+    following = re.match(r"\s+([a-z']+)", text[match.end() :], re.I)
+    return bool(following) and following.group(1).lower() not in _BARE_FOLLOWERS
+
+
 _DOMAIN_PHRASES = frozenset(
     [
         "the note",
@@ -284,7 +301,9 @@ class AdvancedCoreferenceResolver:
     _RE_DOMAIN = re.compile(r"\b(" + "|".join(re.escape(p) for p in _DOMAIN_PHRASES) + r")\b", re.I)
 
     # Generic pronouns
-    _RE_PRONOUN = re.compile(r"\b(" + "|".join(re.escape(p) for p in _GENERIC_PRONOUNS) + r")\b", re.I)
+    _RE_PRONOUN = re.compile(
+        r"\b(" + "|".join(re.escape(p) for p in sorted(_GENERIC_PRONOUNS, key=len, reverse=True)) + r")\b", re.I
+    )
 
     # Idiomatic vague phrases that must NOT trigger coref resolution
     _RE_NO_RESOLVE = re.compile(
@@ -384,7 +403,7 @@ class AdvancedCoreferenceResolver:
                 candidate = all_candidates[0]  # Pick first
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue, conf = "ATTRIBUTE_REF", candidate, 0.85
                 candidates = all_candidates
@@ -399,7 +418,7 @@ class AdvancedCoreferenceResolver:
                 candidate = all_candidates[0]
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue, conf = "ATTRIBUTE_REF", candidate, 0.82
                 candidates = all_candidates
@@ -421,7 +440,7 @@ class AdvancedCoreferenceResolver:
             if candidate:
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue, conf = "RECENCY_REF", candidate, 0.88
                 logger.info("[COREF] RECENCY '%s' -> '%s'", old, replacement)
@@ -435,7 +454,7 @@ class AdvancedCoreferenceResolver:
                 candidate = all_candidates[0]
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue, conf = "DESCRIPTIVE_REF", candidate, 0.80
                 candidates = all_candidates
@@ -455,13 +474,13 @@ class AdvancedCoreferenceResolver:
                     conf = 0.82
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue = "DOMAIN_PRONOUN", candidate
                 logger.info("[COREF] DOMAIN '%s' -> '%s'", old, replacement)
 
         # 7. PRONOUN_GENERIC ("it", "that", "this")
-        m = self._RE_PRONOUN.search(text)
+        m = next((hit for hit in self._RE_PRONOUN.finditer(text) if not _modifies_noun(text, hit)), None)
         if m and not etype:
             candidate = self._last_note_ref(ctx)
             # Generic pronouns are highly ambiguous with multiple context items
@@ -474,7 +493,7 @@ class AdvancedCoreferenceResolver:
                     conf = 0.75
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue = "PRONOUN_GENERIC", candidate
                 logger.info("[COREF] PRONOUN '%s' -> '%s'", old, replacement)
@@ -501,6 +520,12 @@ class AdvancedCoreferenceResolver:
         # DialogueMemory has highest fidelity
         mention = self.memory.last_of_type("NOTE_REF")
         if mention:
+            # "What do you think about that?" eight turns after creating a note
+            # was rewritten to ask about the note. Past a couple of turns the
+            # pronoun stays as written and the model resolves it from the
+            # conversation, which it can see.
+            if self.memory._turn - mention.turn_index > _NOTE_ANCHOR_TURNS:
+                return None
             return str(mention.value)
         # Fall back to context dict
         title = ctx.get("last_note_title") or ctx.get("last_entities", {}).get("title")

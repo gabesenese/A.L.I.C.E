@@ -77,12 +77,9 @@ def render_grounded_greeting(
     llm_candidate = ""
     llm_reasons: list[str] = []
     allow_focus_reference = bool(continuation_requested and has_active_focus)
-    resolved_local_time = local_time
-    if resolved_local_time is None and str(timezone_name or "").strip():
-        try:
-            resolved_local_time = datetime.now().astimezone()
-        except Exception:
-            resolved_local_time = None
+    # Alice runs on the user's machine, so its clock is the user's clock. Without
+    # it every "morning" was rejected as a time-of-day mismatch.
+    resolved_local_time = local_time if local_time is not None else datetime.now().astimezone()
     time_period = _get_time_period(resolved_local_time)
     local_time_label = resolved_local_time.strftime("%Y-%m-%d %H:%M") if resolved_local_time is not None else ""
     if llm_generate:
@@ -171,8 +168,6 @@ def validate_chat_greeting(text: str, *, pure_greeting: bool = True) -> Greeting
 
     low = normalized.lower()
     sentence_count = normalized.count(".") + normalized.count("?") + normalized.count("!")
-    if sentence_count < 1:
-        return GreetingValidationResult(False, ["missing_sentence"], "")
     if sentence_count > 3:
         return GreetingValidationResult(False, ["too_many_sentences"], "")
 
@@ -274,24 +269,13 @@ def _has_continuation_cue(text: str) -> bool:
     return any(cue in text for cue in cues)
 
 
-_FALLBACK_POOL = [
-    "Hey {name}. What's the move?",
-    "Alright — what are we building or breaking?",
-    "Hey. Give me the target.",
-    "Yo {name}. What are we tackling?",
-    "Hey. What's on deck?",
-    "Alright {name}. What are we doing?",
-]
-
-
 def _fallback_greeting(*, user_name: str, recent_greeting_texts: list[str]) -> str:
-    fname = _first_name(user_name) or "Gabriel"
-    recent_norms = {_normalize_greeting_text(t) for t in recent_greeting_texts if t}
-    for candidate in _FALLBACK_POOL:
-        rendered = candidate.replace("{name}", fname)
-        if _normalize_greeting_text(rendered) not in recent_norms:
-            return rendered
-    return f"Hey {fname}. What's the move?"
+    # One flat line when the model is unavailable. A six-line rotation made the
+    # degraded path look like variety, and the same lines were fed to the
+    # model as examples, so its greetings came out identical to the fallback.
+    _ = recent_greeting_texts
+    fname = _first_name(user_name)
+    return f"Hey {fname}." if fname else "Hey."
 
 
 def _try_constrained_llm_greeting(
@@ -327,7 +311,6 @@ def _try_constrained_llm_greeting(
             "Alice is a direct, dry, invested companion — not a warm assistant. She has presence and personality.\n"
             "Aim for 2 sentences — greet him and pull him forward. Do not minimize to one question fragment.\n"
             "The reply must feel like you actually showed up with something to say — not vague dominance filler.\n"
-            "Good examples: 'Hey Gabriel. What's the move?' / 'Alright — what are we building or breaking?' / 'Hey. Give me the target.' / 'Yo Gabriel. What are we tackling?'\n"
             "Bad examples (reject these): 'You're up.' / 'Go on.' / 'What's stuck?' / 'What's up?' — dead air or presumptuous.\n"
             "You may ask ONE short direct question. It must NOT be 'How can I help?', 'What can I do?', 'What do you need?', or any helpdesk phrasing.\n"
             "Do not assume the user has a problem, is stuck, seems off, or has something weighing on them.\n"
@@ -431,16 +414,6 @@ def validate_greeting_candidate(
         return validation
     low = str(candidate or "").lower()
 
-    # Reject low-signal filler (≤ 3 words, no meaningful question, no user name).
-    # Catches: "You're up." "Go on." "Shoot." "Yeah?" "Hey." "Talk."
-    _fname = _first_name(user_name).lower()
-    _has_name = bool(_fname and _fname in low)
-    _word_count = len(candidate.split())
-    # A "real question" must have at least 3 words — "What's stuck?" (2 words) is still dead air.
-    _has_real_question = "?" in candidate and _word_count >= 3
-    if _word_count <= 3 and not _has_name and not _has_real_question:
-        return GreetingValidationResult(False, ["low_signal_greeting"], "")
-
     # On pure-greeting turns, reject any candidate that mentions a proper noun
     # that isn't the user name or "Alice" — blocks hallucinated locations/topics.
     if _is_pure_greeting(str(user_input or "").strip().lower()):
@@ -482,20 +455,15 @@ def validate_greeting_candidate(
             "you're back",
             "you are back",
         ),
+        # Claims about how the user feels. Ordinary openers ("what's up?",
+        # "something on your mind?") ask rather than assume, and are allowed.
         "emotional_assumption": (
             "eating at you",
-            "on your mind",
-            "something to say",
-            "got something",
             "you seem",
             "you look",
             "you sound",
-            "what's stuck",
-            "whats stuck",
             "what's wrong",
             "whats wrong",
-            "what's up",
-            "what's going on",
             "what happened",
             "everything ok",
             "you okay",
