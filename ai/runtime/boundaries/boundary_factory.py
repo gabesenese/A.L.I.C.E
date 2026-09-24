@@ -2766,6 +2766,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 action=invocation.action,
                 data={
                     "response": str(local.get("response") or ""),
+                    "file_text": str(local.get("file_text") or ""),
                     "operator_context": dict(local.get("operator_context") or {}),
                     "local_execution": dict(local.get("local_execution") or {}),
                     "close_matches": list((local.get("operator_context") or {}).get("close_matches") or []),
@@ -3049,6 +3050,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             if req.tool_result and req.tool_result.success:
                 local_payload = dict(req.tool_result.data or {})
                 local_response = str(local_payload.get("response") or "").strip()
+                file_text = str(local_payload.get("file_text") or "")
+                if local_response and file_text:
+                    inspected = str((local_payload.get("local_execution") or {}).get("inspected_file") or "")
+                    local_response = _narrate_tool_result(req, {"file": inspected, "source": file_text}, local_response)
                 if local_response:
                     return ResponseOutput(
                         text=_surface_text(

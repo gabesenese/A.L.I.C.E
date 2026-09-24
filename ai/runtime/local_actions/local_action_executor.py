@@ -18,6 +18,15 @@ from ai.runtime.local_actions.file_index import FileIndex
 from ai.runtime.local_actions.file_resolver import FileResolver
 
 
+def _excerpt(text: str, budget: int = 6000) -> str:
+    """Head and tail of a source file within budget; the middle is where detail lives."""
+    if len(text) <= budget:
+        return text
+    head = text[: budget * 2 // 3]
+    tail = text[-(budget - len(head)) :]
+    return f"{head}\n...\n{tail}"
+
+
 class LocalActionExecutor:
     def __init__(self, alice: Any):
         self.alice = alice
@@ -225,6 +234,9 @@ class LocalActionExecutor:
             return {
                 "success": True,
                 "response": summary,
+                # The source itself, so the reply can say what the file does
+                # rather than read out its line and import counts.
+                "file_text": _excerpt(text),
                 "operator_context": operator_context,
                 "local_execution": local_execution,
             }
