@@ -698,6 +698,13 @@ _CALENDAR_QUESTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "how long is left on my timer?" wants the time left, not the list of reminders.
+_TIMER_LEFT_RE = re.compile(
+    r"\bhow\s+(?:long|much\s+time)(?:'s|\s+is)?\s+(?:left\s+)?(?:on\s+)?(?:my|the)\s+timer\b"
+    r"|\btime\s+left\s+on\s+(?:my|the)\s+timer\b|\bwhen\s+(?:does|will)\s+(?:my|the)\s+timer\s+(?:go\s+off|end|finish)\b",
+    re.IGNORECASE,
+)
+
 # "don't forget to call mom" is asking to be reminded.
 _DONT_FORGET_RE = re.compile(r"^(?:please\s+)?(?:don'?t|do\s+not)\s+(?:let\s+me\s+)?forget\b", re.IGNORECASE)
 
@@ -4367,6 +4374,10 @@ class NLPProcessor:
         # forgotten; the fact stayed in memory. "forget it" means never mind.
         if forget_topic(_raw):
             intent = "memory:delete"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+            _chosen_here = True
+        elif _TIMER_LEFT_RE.search(_raw):
+            intent = "reminder:timer_left"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
             _chosen_here = True
         elif _DONT_FORGET_RE.search(_raw) or parse_timer(_raw) or SNOOZE_RE.match(_raw):

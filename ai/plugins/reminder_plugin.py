@@ -53,6 +53,8 @@ class ReminderPlugin(PluginInterface):
             return self._list(now)
         if action == "agenda":
             return self._agenda(query, now)
+        if action == "timer_left":
+            return self._timer_left(now)
         if action == "cancel":
             cancelled = self.store.cancel(query)
             if not cancelled:
@@ -120,6 +122,19 @@ class ReminderPlugin(PluginInterface):
             "response": said,
             "data": {"task": last.text, "due": due.isoformat(timespec="minutes"), "snoozed": True},
         }
+
+    def _timer_left(self, now: datetime) -> Dict[str, Any]:
+        """How long the running timer has to go, not the whole list of reminders."""
+        timers = [r for r in self.store.pending() if r.kind == "timer"]
+        if not timers:
+            return {"success": True, "response": "You don't have a timer running.", "data": {"count": 0}}
+        lines = []
+        for timer in timers:
+            seconds = max(0, int((timer.due_at - now).total_seconds()))
+            left = f"{seconds} seconds" if seconds < 60 else describe_duration(round(seconds / 60))[0]
+            label = timer.text.split(" for ", 1)[1] if " for " in timer.text else ""
+            lines.append(f"{left} left" + (f" on {label}" if label else ""))
+        return {"success": True, "response": "About " + "; ".join(lines) + ".", "data": {"count": len(lines)}}
 
     def _start_timer(self, minutes: float, label: str, now: datetime) -> Dict[str, Any]:
         """A timer: "set a timer for 10 minutes" went to the model, which has no clock to run."""

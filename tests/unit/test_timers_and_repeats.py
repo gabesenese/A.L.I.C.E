@@ -108,3 +108,20 @@ def test_snooze_is_routed_to_reminders(text):
     from ai.core.nlp_processor import NLPProcessor
 
     assert NLPProcessor().process(text).intent == "reminder:set"
+
+
+def test_the_time_left_on_a_timer_is_answered(tmp_path):
+    store = ReminderStore(tmp_path / "r.json")
+    plugin = ReminderPlugin(store)
+    plugin._start_timer(10, "pasta", now=NOW)
+
+    assert plugin._timer_left(NOW + timedelta(minutes=4))["response"] == "About 6 minutes left on the pasta."
+    assert ReminderPlugin(ReminderStore(tmp_path / "none.json"))._timer_left(NOW)["response"] == (
+        "You don't have a timer running."
+    )
+
+
+def test_asking_how_long_is_left_is_routed_to_the_timer():
+    from ai.core.nlp_processor import NLPProcessor
+
+    assert NLPProcessor().process("how long is left on my timer?").intent == "reminder:timer_left"
