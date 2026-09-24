@@ -1,0 +1,77 @@
+"""Correcting Alice invalidates what she had wrong, not what he just told her.
+
+The correction ran after the turn's new facts were stored, and it marks the most
+recent fact incorrect, so "that's wrong, my sister is called Anna" stored Anna,
+then marked Anna incorrect, and left the old fact standing.
+"""
+
+import pytest
+
+from ai.memory.memory_system import MemorySystem
+from ai.memory.personal_memory import PersonalMemoryStore
+from ai.runtime.alice_contract_factory import build_runtime_boundaries
+from ai.runtime.memory_turn_service import MemoryTurnService
+from tests.integration.test_contract_pipeline import _FakeAlice
+
+
+@pytest.fixture
+def setup(tmp_path):
+    alice = _FakeAlice()
+    alice.memory = MemorySystem(data_dir=str(tmp_path))
+    boundaries = build_runtime_boundaries(alice)
+    store = PersonalMemoryStore(alice.memory)
+    store.store_structured_memory(
+        content="my sister's name is Ana",
+        domain="personal_life",
+        kind="personal_fact",
+        scope="long_term",
+        confidence=0.95,
+        source="explicit_request",
+    )
+    return alice, boundaries, store
+
+
+def _correct(boundaries, text):
+    service = MemoryTurnService()
+    plan = service.build_memory_plan(
+        user_input=text,
+        user_name="Gabriel",
+        trace_id="t1",
+        decision_intent="conversation:general",
+        decision_route="llm",
+        episodic_payload={},
+    )
+    service.store_memory_plan(boundaries=boundaries, plan=plan)
+
+
+def _valid(store):
+    return [
+        r["content"]
+        for r in store.find_recent_structured_memories(top_k=20)
+        if not (r.get("context") or {}).get("invalid")
+    ]
+
+
+def test_the_old_fact_is_the_one_marked_wrong(setup):
+    _alice, boundaries, store = setup
+
+    _correct(boundaries, "that's wrong, my sister is called Anna")
+
+    assert "my sister's name is Ana" not in _valid(store)
+
+
+def test_a_second_correction_does_not_land_on_the_same_fact_again(setup):
+    _alice, boundaries, store = setup
+    store.store_structured_memory(
+        content="my dentist is Dr. Silva",
+        domain="personal_life",
+        kind="personal_fact",
+        scope="long_term",
+        confidence=0.95,
+        source="explicit_request",
+    )
+
+    _correct(boundaries, "that's wrong")
+    _correct(boundaries, "that's wrong")
+
+    assert _valid(store) == []

@@ -91,8 +91,12 @@ class MemoryTurnService:
         }
 
     def store_memory_plan(self, *, boundaries: Any, plan: Dict[str, Any]) -> None:
+        # A correction is about what was said before this turn, and it acts on the
+        # most recent fact. Run after the turn's own facts were stored, "that's
+        # wrong, my sister is called Anna" stored Anna, marked Anna incorrect, and
+        # left the fact being corrected standing.
+        for op in list(plan.get("operation_payloads") or []):
+            boundaries.memory.store(dict(op or {}))
         for payload in list(plan.get("structured_payloads") or []):
             boundaries.memory.store(dict(payload or {}))
         boundaries.memory.store(dict(plan.get("episodic_payload") or {}))
-        for op in list(plan.get("operation_payloads") or []):
-            boundaries.memory.store(dict(op or {}))

@@ -107,7 +107,14 @@ class PersonalMemoryStore:
             rows = [r for r in rows if self._has_tag(r, "domain", str(domain).lower())]
         if kind:
             rows = [r for r in rows if self._has_tag(r, "kind", str(kind).lower())]
-        rows = [r for r in rows if not bool((r.get("context") or {}).get("superseded"))]
+        # A fact already marked wrong is not "the most recent fact" any more: a
+        # second "that's wrong" kept landing on the one the first had invalidated.
+        rows = [
+            r
+            for r in rows
+            if not bool((r.get("context") or {}).get("superseded"))
+            and not bool((r.get("context") or {}).get("invalid"))
+        ]
         rows.sort(key=lambda r: str(r.get("timestamp", "")), reverse=True)
         return rows[: max(1, int(top_k or 5))]
 
