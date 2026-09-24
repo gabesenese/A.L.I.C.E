@@ -16,7 +16,6 @@ from brain.task_scheduler import TaskScheduler
 from ai.infrastructure.rbac import get_rbac_engine
 from ai.infrastructure.runtime_flags import background_services_enabled, scripted_overrides_enabled
 from ai.infrastructure.approval_ledger import get_approval_ledger
-from ai.roadmap import get_roadmap_completion_stack
 from ai.integration.git_manager import get_git_manager
 from ai.integration.build_runner import get_build_runner
 from ai.integration.operator_workflow import OperatorWorkflowOrchestrator
@@ -887,7 +886,6 @@ class ALICE:
             self.rbac_engine = get_rbac_engine()
             self.action_engine = get_unified_action_engine()
             self.approval_ledger = get_approval_ledger()
-            self.roadmap_stack = get_roadmap_completion_stack()
             self.world_state_memory = get_world_state_memory(storage_path="data/world_state.json")
             self.heartbeat = Heartbeat()
             self.ambient_monitor = get_ambient_monitor()
