@@ -43,6 +43,9 @@ from ai.core.entity_registry import get_entity_registry
 
 logger = logging.getLogger(__name__)
 
+# How many turns a note stays the referent of a bare "it"/"that".
+_NOTE_ANCHOR_TURNS = 2
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -501,6 +504,12 @@ class AdvancedCoreferenceResolver:
         # DialogueMemory has highest fidelity
         mention = self.memory.last_of_type("NOTE_REF")
         if mention:
+            # "What do you think about that?" eight turns after creating a note
+            # was rewritten to ask about the note. Past a couple of turns the
+            # pronoun stays as written and the model resolves it from the
+            # conversation, which it can see.
+            if self.memory._turn - mention.turn_index > _NOTE_ANCHOR_TURNS:
+                return None
             return str(mention.value)
         # Fall back to context dict
         title = ctx.get("last_note_title") or ctx.get("last_entities", {}).get("title")

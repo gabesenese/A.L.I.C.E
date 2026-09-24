@@ -31,3 +31,18 @@ def test_a_word_that_contains_the_pronoun_is_left_intact():
 def test_a_domain_phrase_is_replaced_where_it_stands():
     resolved = _resolver_remembering("Groceries").resolve_text("open the notebook and read the note", {})
     assert resolved == 'open the notebook and read "Groceries"'
+
+
+def test_an_old_note_is_not_the_referent_of_a_new_pronoun():
+    resolver = _resolver_remembering("Groceries")
+    for _ in range(8):
+        resolver.memory.update_from_nlp_result("conversation:general", {})
+
+    assert resolver.resolve_text("what do you think about that?", {}) == "what do you think about that?"
+
+
+def test_a_note_from_the_turn_before_is_still_the_referent():
+    resolver = _resolver_remembering("Groceries")
+    resolver.memory.update_from_nlp_result("conversation:general", {})
+
+    assert resolver.resolve_text("what should I do with it?", {}) == 'what should I do with "Groceries"?'
