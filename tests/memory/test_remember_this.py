@@ -39,3 +39,22 @@ def test_it_can_be_recalled_by_name_afterwards(plugin):
     result = plugin.execute("memory:recall", "what's my sister's name?", {"topic": "sister"}, {})
 
     assert "Ana" in result["response"]
+
+
+def test_what_he_asked_to_be_remembered_is_what_she_knows_about_him(tmp_path, monkeypatch):
+    """Stored as a plain memory, the fact was invisible to the personal-memory
+    path: right after it was saved, "what do you know about me?" was answered "I do
+    not have enough saved memory yet to answer that accurately"."""
+    from ai.runtime.alice_contract_factory import build_runtime_boundaries
+    from ai.runtime.contract_pipeline import ContractPipeline
+    from tests.integration.test_contract_pipeline import _FakeAlice
+
+    alice = _FakeAlice()
+    alice.memory = MemorySystem(data_dir=str(tmp_path))
+    MemoryPlugin(memory_system=alice.memory).execute("memory:store", "remember that my sister's name is Ana", {}, {})
+
+    result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(
+        user_input="what do you know about me?", user_id="u1", turn_number=2
+    )
+
+    assert "Ana" in result.response_text

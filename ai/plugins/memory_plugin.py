@@ -19,6 +19,7 @@ import logging
 import re
 from typing import Dict, List, Optional, Any
 
+from ai.memory.personal_memory import PersonalMemoryStore
 from ai.memory.temporal_scope import Period, items_within, requested_period
 
 # Set up logger for this module
@@ -212,22 +213,27 @@ class MemoryPlugin(PluginInterface):
         if not content:
             return {"success": False, "message": "No content to store"}
 
-        topic = entities.get("topic") or "general"
         try:
-            memory_id = self.memory.store_memory(
+            # A structured personal fact, which is where "what do you know about
+            # me?" looks. Stored as a plain episodic memory it was invisible there:
+            # right after "remember that my sister's name is Ana" the answer was
+            # "I do not have enough saved memory yet". Something he asked to be
+            # remembered also outranks a turn that merely happened, and importance
+            # is what survives consolidation.
+            memory_id = PersonalMemoryStore(self.memory).store_structured_memory(
                 content=content,
-                memory_type="episodic",
-                context={"topic": topic, "source": "explicit_request"},
-                tags=["preference", topic] if topic != "general" else ["preference"],
-                # Something he asked to be remembered outranks a turn that merely
-                # happened, and importance is what survives consolidation.
+                domain="personal_life",
+                kind="personal_fact",
+                scope="long_term",
+                confidence=0.95,
+                source="explicit_request",
                 importance=0.8,
             )
         except Exception as e:
             logger.error(f"Error storing preference: {e}")
             return {"success": False, "message": f"Failed to store preference: {e}"}
 
-        if not memory_id:
+        if not memory_id or memory_id == "None":
             return {"success": False, "message": "Failed to store preference"}
         return {
             "success": True,
