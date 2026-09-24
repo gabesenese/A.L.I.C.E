@@ -3466,9 +3466,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
                 # Retry gate: if the LLM hedged, gave a non-answer, or was too dry/short
                 # on a discussion/brainstorm turn, force one harder pass.
+                # "I don't know" is not here. The persona calls it a complete answer,
+                # and sending it back with "do not hedge, give your actual take"
+                # asked the model to guess, which is how an honest gap became a
+                # confident number.
                 _hedge_patterns = (
-                    "i don't know",
-                    "i dont know",
                     "i'm not sure",
                     "i am not sure",
                     "i can't say",

@@ -126,3 +126,16 @@ def test_a_reply_with_nothing_in_it_still_gets_a_second_pass(model):
 
     assert len(model.sent) == 2
     assert result.response_text == REPLY
+
+
+def test_i_dont_know_stands(model):
+    """The persona calls "I don't know" a complete answer. Sending it back with
+    "do not hedge, give your actual take" asks the model to guess instead, which
+    is how an honest gap becomes a confident number."""
+    reply = "I don't know. I can read what this machine is doing right now, if that is close enough."
+    model.replies.append(reply)
+
+    result = _ask(model.engine, "how much RAM does Ollama hold when it's idle?")
+
+    assert len(model.sent) == 1
+    assert result.response_text == reply
