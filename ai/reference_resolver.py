@@ -18,6 +18,16 @@ class ResolutionResult:
 
 class ReferenceResolver:
     PRONOUNS = ("it", "that", "this", "them", "those")
+    # "that" opening a clause ("remember that my sister's name is Ana") and
+    # "this:" pointing forward ("save this: the wifi code is 4521") refer to
+    # nothing earlier. Counted as references, a short turn like the first was sent
+    # for clarification and never stored, and with a subject in context the word
+    # was overwritten: "remember sqlite my sister's name is Ana".
+    _NOT_A_REFERENCE = re.compile(
+        r"\bthat\s+(?:i|you|he|she|we|they|it|my|your|his|her|our|their|the|a|an|there|these|those|\w+'s)\b"
+        r"|\b(?:this|that)\s*:",
+        re.IGNORECASE,
+    )
     _TEMPORAL_DEICTIC = {
         "week",
         "weekend",
@@ -71,15 +81,10 @@ class ReferenceResolver:
                 continue
             if pronoun == "this" and self._is_temporal_deictic_usage(rewritten):
                 continue
-            if re.search(rf"\b{re.escape(pronoun)}\b", rewritten, flags=re.IGNORECASE):
+            match = self._referential_match(rewritten, pronoun)
+            if match:
                 if subject:
-                    rewritten = re.sub(
-                        rf"\b{re.escape(pronoun)}\b",
-                        subject,
-                        rewritten,
-                        count=1,
-                        flags=re.IGNORECASE,
-                    )
+                    rewritten = rewritten[: match.start()] + subject + rewritten[match.end() :]
                     resolved_bindings[pronoun] = subject
                 else:
                     unresolved_pronouns.append(pronoun)
@@ -107,6 +112,13 @@ class ReferenceResolver:
         if not match:
             return False
         return match.group(1).lower() in cls._TEMPORAL_DEICTIC
+
+    def _referential_match(self, text: str, pronoun: str) -> "re.Match[str] | None":
+        skipped = [m.span() for m in self._NOT_A_REFERENCE.finditer(text)]
+        for match in re.finditer(rf"\b{re.escape(pronoun)}\b", text, flags=re.IGNORECASE):
+            if not any(start <= match.start() < end for start, end in skipped):
+                return match
+        return None
 
     @staticmethod
     def _pick_subject(state: Dict[str, object]) -> str:
