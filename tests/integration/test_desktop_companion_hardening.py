@@ -23,9 +23,6 @@ def test_rich_entrypoint_passes_llm_policy(monkeypatch):
         def __init__(self, user_name):
             self.user_name = user_name
 
-        def show_loading(self, message):
-            pass
-
         def clear(self):
             pass
 

@@ -66,7 +66,6 @@ def start_alice_rich(
         from ui.rich_terminal import RichTerminalUI
 
     ui = RichTerminalUI(user_name)
-    ui.show_loading("Initializing A.L.I.C.E systems")
 
     # Initialize ALICE with stdout+stderr suppressed (unless debug)
     # Suppressing stderr catches tqdm progress bars and model LOAD REPORTs
@@ -79,14 +78,17 @@ def start_alice_rich(
         sys.stderr = io.StringIO()
 
     try:
-        alice = ALICE(
-            voice_enabled=voice_enabled,
-            llm_model=llm_model,
-            user_name=user_name,
-            debug=debug,
-            privacy_mode=privacy_mode,
-            llm_policy=llm_policy,
-        )
+        # The spinner covers the real load. A 2-second progress bar used to
+        # fill before any work started, then the screen froze while it ran.
+        with ui.thinking_spinner():
+            alice = ALICE(
+                voice_enabled=voice_enabled,
+                llm_model=llm_model,
+                user_name=user_name,
+                debug=debug,
+                privacy_mode=privacy_mode,
+                llm_policy=llm_policy,
+            )
         if not debug:
             sys.stdout = old_stdout
             sys.stderr = old_stderr
@@ -98,6 +100,15 @@ def start_alice_rich(
         if privacy_mode:
             ui.print_info(" Privacy mode: Episodic memories will not be saved.")
         ui.print_info("")
+
+        # She speaks first, in her own words.
+        try:
+            with ui.thinking_spinner():
+                greeting = str(alice._get_greeting() or "").strip()
+        except Exception:
+            greeting = ""
+        if greeting:
+            ui.print_assistant_response(greeting)
 
         # Main interaction loop
         while True:
