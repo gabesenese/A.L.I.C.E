@@ -17,7 +17,7 @@ from ai.core.executive_controller import (
     TurnExecutionOutcome,
     TurnStateMachineResult,
 )
-from ai.contracts import RuntimeBoundaries, VerifierResult
+from ai.contracts import RuntimeBoundaries, ToolInvocation, VerifierResult
 from ai.infrastructure.telemetry import tracer, turn_counter, turn_latency
 from ai.runtime.companion_runtime import CompanionRuntimeLoop
 from ai.runtime.agent_loop import build_agent_loop_state
@@ -255,6 +255,33 @@ class ContractPipeline:
                 "tool_execution_disabled": True,
             },
         )
+
+    def _todays_agenda(self) -> str:
+        """What he has on today, said with the first reply of a session.
+
+        The briefing only ever knew Google Calendar events, so with reminders set
+        and a note due, "morning" was answered as if the day were empty. An empty
+        day is not worth a line.
+        """
+        try:
+            result = self.boundaries.tools.execute(
+                ToolInvocation(
+                    tool_name="reminder",
+                    action="reminder:agenda",
+                    params={
+                        "intent": "reminder:agenda",
+                        "query": "what do I have today",
+                        "entities": {},
+                        "context": {},
+                    },
+                )
+            )
+        except Exception:
+            return ""
+        text = str((getattr(result, "data", None) or {}).get("response") or "").strip()
+        if not getattr(result, "success", False) or not text or text.startswith("Nothing"):
+            return ""
+        return text
 
     @staticmethod
     def _merge_issue_lists(*issue_lists: List[str]) -> List[str]:
@@ -1225,7 +1252,14 @@ class ContractPipeline:
             try:
                 from ai.runtime.session_briefing import generate_session_briefing
 
-                _briefing = generate_session_briefing(str(user_id or "gabriel"))
+                # The day he has, from his reminders and the notes falling due,
+                # unless this turn already asked about it.
+                _asked_for_day = str(decision.intent or "").startswith(("reminder:", "calendar:"))
+                _parts = (
+                    "" if _asked_for_day else self._todays_agenda(),
+                    generate_session_briefing(str(user_id or "gabriel")),
+                )
+                _briefing = "\n\n".join(part for part in _parts if part)
                 if _briefing:
                     if response_text:
                         response_text = response_text.rstrip() + "\n\n" + _briefing
