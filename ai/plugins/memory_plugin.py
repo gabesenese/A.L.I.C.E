@@ -18,6 +18,8 @@ Supports commands like:
 import logging
 from typing import Dict, List, Optional, Any
 
+from ai.memory.temporal_scope import Period, items_within, requested_period
+
 # Set up logger for this module
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -94,7 +96,9 @@ class MemoryPlugin(PluginInterface):
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         """Execute memory operation based on intent"""
         try:
-            # Use the existing handle_request method
+            # The question itself goes along, so recall can honour a time it names
+            # ("what did we talk about yesterday?").
+            entities = {**dict(entities or {}), "_question": query}
             result = self.handle_request(intent, entities, context)
 
             # Ensure result has required fields
@@ -238,10 +242,43 @@ class MemoryPlugin(PluginInterface):
     def _summarise(memories: List[Dict[str, Any]], limit: int = 3) -> str:
         return "\n".join(f"- {m.get('content', '')}" for m in memories[:limit])
 
+    def _recall_period(self, period: Period, topic: Optional[str] = None) -> Dict[str, Any]:
+        """Memories from the stretch of time the question names.
+
+        "What did we talk about yesterday?" was answered from any day, or read
+        "yesterday" as the topic and found nothing about it. The time is a
+        filter, not a topic; a real topic narrows the day further when it matches.
+        """
+        when = period.phrase
+        dated = items_within(self.memory.get_all_memories(limit=500), period)
+        needle = str(topic or "").strip().lower()
+        if needle and needle not in when.lower():
+            dated = [m for m in dated if needle in str(m.get("content", "")).lower()] or dated
+        if not dated:
+            return {
+                "success": True,
+                "message": f"I don't have anything saved from {when}.",
+                "memories": [],
+                "results": [],
+                "count": 0,
+                "recall_available": True,
+            }
+        return {
+            "success": True,
+            "message": f"Here's what I have from {when}:\n{self._summarise(dated, limit=5)}",
+            "memories": dated,
+            "results": dated,
+            "count": len(dated),
+            "recall_available": True,
+        }
+
     def _recall_memory(self, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """Recall specific information"""
         available = self._recall_is_available()
         topic = entities.get("topic") or entities.get("query") or entities.get("about")
+        period = requested_period(str(entities.get("_question") or ""))
+        if period is not None and available:
+            return self._recall_period(period, topic)
 
         if not available:
             return {
@@ -294,6 +331,18 @@ class MemoryPlugin(PluginInterface):
     def _search_memory(self, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """Search conversation history"""
         query = entities.get("query") or entities.get("topic") or entities.get("about")
+
+        period = requested_period(str(entities.get("_question") or ""))
+        if period is not None:
+            if not self._recall_is_available():
+                return {
+                    "success": False,
+                    "message": self._UNREACHABLE,
+                    "results": [],
+                    "count": 0,
+                    "recall_available": False,
+                }
+            return self._recall_period(period, query)
 
         if not query:
             return {"success": False, "message": "No search query specified"}
