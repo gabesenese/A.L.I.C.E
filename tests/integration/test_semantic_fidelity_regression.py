@@ -962,7 +962,9 @@ def test_clamp_final_response_strips_only_the_disclaimer_clause():
     assert clamped == "I don't have preferences, but SQLite is fine for one user."
 
 
-def test_clamp_final_response_project_ideation_meta_leak_uses_guidance():
+def test_clamp_final_response_project_ideation_meta_leak_uses_guidance(monkeypatch):
+    """A template replacing the model's answer, so only under scripted overrides."""
+    monkeypatch.setenv("ALICE_ENABLE_SCRIPTED_OVERRIDES", "1")
     alice = ALICE.__new__(ALICE)
 
     leaked = "analysis: project_ideation context: user wants an ai agent plan: ask for exact result"
@@ -980,7 +982,9 @@ def test_clamp_final_response_project_ideation_meta_leak_uses_guidance():
     assert "focus first on memory, tool-use, or conversational quality" in low
 
 
-def test_clamp_final_response_rewrites_anthropomorphic_routine_claims():
+def test_clamp_final_response_rewrites_anthropomorphic_routine_claims(monkeypatch):
+    """A template replacing the model's answer, so only under scripted overrides."""
+    monkeypatch.setenv("ALICE_ENABLE_SCRIPTED_OVERRIDES", "1")
     alice = ALICE.__new__(ALICE)
 
     leaked = "When I unwind, I usually like to read a book or listen to calming music."
@@ -1168,3 +1172,55 @@ def test_two_turn_llm_fallback_finalization_skips_publish_polish_and_runs_single
     assert calls["publish"] == 0
     assert calls["gate"] == 1
     assert str(final or "").strip() == str(recovered or "").strip()
+
+
+def _clamp(text):
+    return ALICE.__new__(ALICE)._clamp_final_response(
+        text, tone="helpful", response_type="general_response", route="contract_pipeline_llm"
+    )
+
+
+@pytest.mark.parametrize("enabled", ["0", "1"])
+def test_clamp_never_swaps_an_opinion_for_a_template(monkeypatch, enabled):
+    """The routine check fired on "i usually like to" anywhere in a reply."""
+    monkeypatch.setenv("ALICE_ENABLE_SCRIPTED_OVERRIDES", enabled)
+    reply = "I usually like to start with the tests, then the parser."
+    assert _clamp(reply) == reply
+
+
+def test_clamp_leaves_the_models_answer_standing_by_default(monkeypatch):
+    monkeypatch.delenv("ALICE_ENABLE_SCRIPTED_OVERRIDES", raising=False)
+    reply = "When I unwind, I usually like to read a book or listen to calming music."
+    assert _clamp(reply) == reply
+
+
+@pytest.mark.parametrize(
+    "reply, expected",
+    [
+        ("Definitely not, that deletes your notes.", "Definitely not, that deletes your notes."),
+        ("Certainly not. The index lives there.", "Certainly not. The index lives there."),
+        ("Sure, running them now.", "Running them now."),
+        ("No problem. The fix is in.", "The fix is in."),
+    ],
+)
+def test_clamp_drops_a_filler_word_but_never_the_answer_it_starts(reply, expected):
+    assert _clamp(reply) == expected
+
+
+@pytest.mark.parametrize(
+    "reply, expected",
+    [
+        ('He called it "the loop"', 'He called it "the loop"'),
+        ('"Ship it" was the verdict.', '"Ship it" was the verdict.'),
+        ('"The whole reply was wrapped in quotes."', "The whole reply was wrapped in quotes."),
+    ],
+)
+def test_clamp_unwraps_a_quoted_reply_without_breaking_a_quotation(reply, expected):
+    assert _clamp(reply) == expected
+
+
+def test_clamp_keeps_the_sentence_a_preamble_leads_into():
+    """This one-sentence answer used to be deleted whole and replaced with
+    "I need one more detail to answer correctly."."""
+    reply = "Let's dive into this: the cache is per-process, so two workers diverge."
+    assert _clamp(reply) == "The cache is per-process, so two workers diverge."

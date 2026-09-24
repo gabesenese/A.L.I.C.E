@@ -43,8 +43,8 @@ _FILLER_INTERJECTIONS = (
 # Servile sign-offs that carry no content. "What do you think?" is deliberately
 # not here: it is a real question, and stripping it removed the reciprocity that
 # makes an exchange two-way rather than a lookup returning a value. An offer to
-# go and do something ("would you like me to…") does stay, because Alice can
-# simply go and do it.
+# go and do something ("would you like me to…") is still stripped, because Alice
+# can simply go and do it.
 _FILLER_CLOSINGS = (
     r"let me know if (?:you|there)",
     r"(?:feel free to|don'?t hesitate to) (?:ask|reach out|let me know)",
@@ -166,7 +166,8 @@ def split_sentences(text: str) -> List[str]:
     return [content[start:end].strip() for start, end in _sentence_spans(content)]
 
 
-def _capitalised(text: str) -> str:
+def capitalise_start(text: str) -> str:
+    """Capitalise a reply that now starts mid-sentence, leaving identifiers alone."""
     first = text.split(" ", 1)[0]
     if first.isalpha() and first.islower():
         return text[:1].upper() + text[1:]
@@ -189,7 +190,7 @@ def strip_filler_opening(text: str) -> str:
     """Drop a leading compliment or throat-clearing, but never the point, and never everything."""
     cleaned = str(text or "").strip()
     for _ in range(2):
-        candidate = _capitalised(_OPENING_RE.sub(_drop_opening, cleaned, count=1).strip())
+        candidate = capitalise_start(_OPENING_RE.sub(_drop_opening, cleaned, count=1).strip())
         if not candidate or candidate == cleaned:
             break
         cleaned = candidate

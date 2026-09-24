@@ -143,7 +143,7 @@ from ai.runtime.response_authority import (
     contract_respond_stage,
     finalize_conversational_surface,
 )
-from ai.runtime.response_discipline import strip_ai_disclaimer
+from ai.runtime.response_discipline import capitalise_start, strip_ai_disclaimer
 from ai.planning.proactive_assistant import pick_timely_note
 from ai.runtime.turn_orchestrator import run_default_turn
 
@@ -1113,45 +1113,56 @@ class ALICE:
         if not text:
             return "I need one more detail to answer correctly."
 
-        # Normalize shell quoting while preserving paragraph structure.
-        text = text.strip().strip('"').strip("'")
+        # A reply the model wrapped whole in quotes is unwrapped. Stripping a quote
+        # off each end regardless cut the closing quote off any answer that ended
+        # with a quotation, and the opening one off any that began with one.
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'" and text[0] not in text[1:-1]:
+            text = text[1:-1].strip()
         text = text.replace("\r\n", "\n").replace("\r", "\n")
         text = "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")).strip()
         text = re.sub(r"\n{3,}", "\n\n", text)
 
-        # Remove common filler/over-softening prefixes.
-        text = re.sub(
-            r"^(?:sure|of course|absolutely|definitely|certainly|no problem|happy to help)[:,.!]?\s+",
-            "",
+        # Remove common filler/over-softening prefixes. The punctuation after the
+        # word is what makes it filler: without it, "Definitely not, that deletes
+        # your notes" went out as "not, that deletes your notes".
+        opener = re.match(
+            r"^(?:sure|of course|absolutely|definitely|certainly|no problem|happy to help)[:,.!]\s+(?=\S)",
             text,
             flags=re.IGNORECASE,
         )
+        if opener:
+            text = capitalise_start(text[opener.end() :])
 
         # Strip thinking-aloud preamble — the model narrating its own reasoning process.
+        # Each one ends at its own punctuation, so the sentence it leads into stays:
+        # "Let's dive into this: the cache is per-process" used to lose everything up
+        # to the full stop, which for a one-sentence answer was the whole answer.
         _thinking_aloud = (
-            r"^let me think about (this|that)[.!,]?\s*",
-            r"^let me analyze (this|that)[.!,]?\s*",
-            r"^let me break (this|that) down[.!,]?\s*",
-            r"^let me work through (this|that)[.!,]?\s*",
-            r"^let me consider (this|that)[.!,]?\s*",
-            r"^let me dive into (this|that)[.!,]?\s*",
-            r"^let\x27?s? dive into (this|that|what)[^.!?\n]{0,60}[.!?]?\s*",
+            r"^let me (?:think about|analyze|work through|consider|dive into) (?:this|that)[.!,:]\s*",
+            r"^let me break (?:this|that) down[.!,:]\s*",
+            r"^let\x27?s? dive into (?:this|that|what)[^.!?\n:,;]{0,60}[.!?:,;]\s*",
             r"^from my understanding[,.]?\s*",
             r"^from my perspective[,.]?\s*",
             r"^ill? (try to |go ahead and )?(help|assist|address|answer|explain)[^.!?\n]{0,40}[.!]?\s*",
         )
         for _pat in _thinking_aloud:
-            text = re.sub(_pat, "", text, flags=re.IGNORECASE).strip()
+            stripped = re.sub(_pat, "", text, flags=re.IGNORECASE).strip()
+            if stripped and stripped != text:
+                text = capitalise_start(stripped)
 
-        # Reject meta-assistant leakage and replace with Alice-safe fallback.
+        # Templates that replace an answer the model produced, so they follow the
+        # scripted-overrides policy: off by default, and the answer stands. The
+        # routine check also used to fire on "i usually like to" anywhere, which
+        # swapped "I usually like to start with the tests" for advice about resting.
         lower = text.lower()
-        if "analysis: project_ideation" in lower and "exact result" in lower:
-            return (
-                "A strong place to start is to focus first on memory, tool-use, or conversational quality. "
-                "Choose one and I will map the next engineering step."
-            )
-        if "when i unwind" in lower or "i usually like to" in lower:
-            return "A practical option is to recover with one short reset activity, then pick a single next step you can finish now."
+        if scripted_overrides_enabled():
+            if "analysis: project_ideation" in lower and "exact result" in lower:
+                return (
+                    "A strong place to start is to focus first on memory, tool-use, or conversational quality. "
+                    "Choose one and I will map the next engineering step."
+                )
+            if "when i unwind" in lower:
+                return "A practical option is to recover with one short reset activity, then pick a single next step you can finish now."
         # A self-disclaimer is not her voice, so the clause goes, and only the clause.
         # This used to replace the whole answer whenever "language model" or "as an
         # ai" appeared anywhere in it, so every question about how models work was
