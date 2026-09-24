@@ -47,3 +47,13 @@ def test_remind_me_as_a_recall_question_is_a_question(nlp, text):
 )
 def test_real_reminder_requests_still_are(nlp, text):
     assert nlp.process(text).intent == "reminder:set"
+
+
+@pytest.mark.parametrize("word", ["talk", "lost", "tank", "mote"])
+def test_real_short_words_are_not_corrected_into_command_words(nlp, word):
+    assert nlp._apply_noisy_channel_normalization(f"what did we {word} about") == f"what did we {word} about"
+
+
+def test_long_typos_and_known_short_typos_are_still_corrected(nlp):
+    assert nlp._apply_noisy_channel_normalization("show my calender") == "show my calendar"
+    assert nlp._apply_noisy_channel_normalization("lsit my ntoes") == "list my notes"

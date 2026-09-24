@@ -1709,6 +1709,9 @@ class NLPProcessor:
             "notse": "notes",
             "emial": "email",
             "calender": "calendar",
+            "lsit": "list",
+            "ntoe": "note",
+            "ntoes": "notes",
         }
         self._noisy_channel_lexicon = {
             *(self.command_vocabulary.get("verbs", set())),
@@ -2023,10 +2026,14 @@ class NLPProcessor:
 
     def _closest_lexicon_term(self, token: str, max_distance: int = 1) -> Optional[str]:
         """Find likely command lexicon correction for noisy input tokens."""
-        if not token or not token.isalpha() or len(token) < 4:
-            return None
         if token in self._noisy_channel_lexicon:
             return token
+        # Four- and five-letter words sit one edit away from each other all the
+        # time: "talk" became "task" and "lost" became "list", which destroyed
+        # the cue "what did we talk about" is routed on. Short typos go through
+        # the explicit _typo_replacements map instead.
+        if not token or not token.isalpha() or len(token) < 6:
+            return None
 
         def _is_adjacent_transposition(source: str, target: str) -> bool:
             if len(source) != len(target):
