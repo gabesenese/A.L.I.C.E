@@ -477,6 +477,50 @@ def _note_last_interaction(alice: Any, user_input: str, reply: str, intent: str 
         logger.debug("Could not note the last interaction: %s", exc)
 
 
+# "no, I meant the weather", "not that - I was asking about my notes": the user
+# restating a request Alice took the wrong way.
+_RESTATEMENT_RE = re.compile(
+    r"^(?:[\w' ]{0,40}[,.!;:-]\s*)?(?:i\s+meant|i\s+was\s+asking\s+about|i\s+asked\s+about|i\s+was\s+talking\s+about)\b",
+    re.IGNORECASE,
+)
+# Learning is only ever for looking something up. A phrasing must never come to
+# mean deleting or sending on its own.
+_NEVER_LEARNED = ("delete", "remove", "cancel", "clear", "forget", "send", "compose")
+_NOT_A_ROUTE = {"conversation", "learning", "greeting", "thanks", "clarification", "unknown"}
+
+
+def _learn_from_restatement(alice: Any, user_input: str, meta: Dict[str, Any], previous: Any) -> None:
+    """Learn what a phrasing meant from the user saying so, with no command.
+
+    The only way to fix a misroute was /correct, and nobody types a command in
+    conversation; they say "no, I meant the weather". That restatement is the
+    correction: what it routes to, when it succeeds, is what the previous
+    phrasing asked for, and next time that phrasing goes there directly. Only the
+    explicit "I meant" family counts, only a move to a different plugin, and never
+    an action that deletes or sends.
+    """
+    learn = getattr(alice, "_learn_intent_correction", None)
+    if not callable(learn) or not isinstance(previous, dict):
+        return
+    if not _RESTATEMENT_RE.search(str(user_input or "").strip()):
+        return
+    if not bool((meta.get("verification") or {}).get("accepted")):
+        return
+    new_intent = str(meta.get("intent") or "")
+    plugin, _, action = new_intent.partition(":")
+    old_input = str(previous.get("user_input") or "").strip()
+    old_plugin = str(previous.get("intent") or "").partition(":")[0]
+    if not old_input or not action or plugin in _NOT_A_ROUTE or plugin == old_plugin:
+        return
+    if any(word in action for word in _NEVER_LEARNED):
+        return
+    try:
+        if learn(old_input, new_intent):
+            logger.info("Learned from a restatement: %r means %s", old_input, new_intent)
+    except Exception as exc:
+        logger.debug("Could not learn from the restatement: %s", exc)
+
+
 def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> str:
     """Default app turn entrypoint.
 
@@ -490,6 +534,7 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
 
     history = _transcript(alice)
     recorded_before = len(history) if history is not None else 0
+    previous_turn = getattr(alice, "last_interaction", None)
 
     # Tool chaining — compound queries execute multiple plugins before the pipeline
     plugin_manager = getattr(alice, "plugins", None)
@@ -550,6 +595,7 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
                         pass
                 response = str(result.response_text or "")
                 _remember_turn(alice, user_input, response, recorded_before)
+                _learn_from_restatement(alice, user_input, meta, previous_turn)
                 _note_last_interaction(alice, user_input, response, str(meta.get("intent") or ""))
                 if use_voice and getattr(alice, "speech", None):
                     alice.speech.speak(response, blocking=False)
