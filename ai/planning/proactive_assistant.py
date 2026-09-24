@@ -394,6 +394,51 @@ class ProactiveAssistant:
         return suggestions
 
 
+def pick_timely_note(notes: List[Any], now: datetime) -> Optional[str]:
+    """The one note worth raising as a session opens, or None, which is most days.
+
+    North star: surface something only when it is both timely and unambiguously
+    relevant. That means overdue within the last week, or due today, freshest
+    first. Anything overdue for longer is treated as abandoned rather than
+    pressing, so a stale note is not raised at every start forever. Archived
+    notes and checklists with every item ticked are done.
+    """
+    overdue: List[Any] = []
+    today: List[Any] = []
+    for note in notes or []:
+        if getattr(note, "archived", False):
+            continue
+        items = getattr(note, "checklist_items", None) or []
+        if items and all(isinstance(item, dict) and item.get("checked") for item in items):
+            continue
+        raw = str(getattr(note, "due_date", "") or "").strip()
+        title = str(getattr(note, "title", "") or "").strip()
+        if not raw or not title:
+            continue
+        try:
+            due = datetime.fromisoformat(raw)
+        except ValueError:
+            continue
+        if due.tzinfo is not None:
+            due = due.astimezone().replace(tzinfo=None)
+        has_time = len(raw) > 10
+        if not has_time:
+            due = due.replace(hour=23, minute=59)  # a bare date is due by the end of that day
+        if due < now and now - due <= timedelta(days=7):
+            overdue.append((due, title))
+        elif due >= now and due.date() == now.date():
+            today.append((due, title, has_time))
+    if overdue:
+        due, title = max(overdue)
+        days = (now.date() - due.date()).days
+        when = "earlier today" if days == 0 else "yesterday" if days == 1 else f"{days} days ago"
+        return f'the note "{title}" was due {when}'
+    if today:
+        due, title, has_time = min(today)
+        return f'the note "{title}" is due today' + (f" at {due.strftime('%H:%M')}" if has_time else "")
+    return None
+
+
 _proactive_assistant: Optional[ProactiveAssistant] = None
 
 

@@ -144,6 +144,7 @@ from ai.runtime.response_authority import (
     finalize_conversational_surface,
 )
 from ai.runtime.response_discipline import strip_ai_disclaimer
+from ai.planning.proactive_assistant import pick_timely_note
 from ai.runtime.turn_orchestrator import run_default_turn
 
 # ===== 10 TIER IMPROVEMENTS (LAZY IMPORT UNDER QUARANTINE FLAGS) =====
@@ -6514,9 +6515,23 @@ class ALICE:
             print(f"\nUnknown command: {command}")
             print("   Type /help for available commands")
 
+    def _timely_note(self) -> Optional[str]:
+        """The one note worth raising as the session opens, or None (most days)."""
+        try:
+            for plugin in dict(getattr(getattr(self, "plugins", None), "plugins", {}) or {}).values():
+                if isinstance(plugin, NotesPlugin):
+                    return pick_timely_note(plugin.manager.get_all_notes(), datetime.now())
+        except Exception as e:
+            logger.debug(f"[GREETING] Timely note lookup skipped: {e}")
+        return None
+
     def _get_greeting(self) -> str:
         """Generate context-aware greeting using ALICE's conversational abilities"""
         name = self._resolve_runtime_user_name()
+        # Something timely is worth her own words, so the replayed learned
+        # greetings are skipped, and the line is never learned: replaying "the
+        # bank call was due yesterday" a week later would be an invention.
+        timely = self._timely_note()
         hour = datetime.now().hour
 
         # Determine time of day context
@@ -6530,7 +6545,7 @@ class ALICE:
             time_context = "late night"
 
         # Try conversational engine first (learned greetings)
-        if hasattr(self, "conversational_engine") and self.conversational_engine:
+        if not timely and hasattr(self, "conversational_engine") and self.conversational_engine:
             # Use learned greeting patterns if available
             if (
                 hasattr(self.conversational_engine, "learned_greetings")
@@ -6544,20 +6559,29 @@ class ALICE:
                 if hasattr(self.conversational_engine, "_pick_non_repeating") and len(greeting_options) >= 2:
                     return self.conversational_engine._pick_non_repeating(greeting_options)
 
-        learned = self._learned_greeting_response(
-            user_input="greeting",
-            user_name=name,
-            asked_how=False,
-            time_context=time_context,
+        learned = (
+            None
+            if timely
+            else self._learned_greeting_response(
+                user_input="greeting",
+                user_name=name,
+                asked_how=False,
+                time_context=time_context,
+            )
         )
         if learned:
             return learned
 
+        timely_line = (
+            f"\n- Worth raising, only because it is timely: {timely}. Work it into the line in your own words."
+            if timely
+            else ""
+        )
         # Fallback to Gateway for natural greeting generation
         prompt = f"""You are ALICE, Gabriel's AI companion — not an assistant, not a chatbot.
 Generate a single brief opening line to start the session. Context:
 - User's name: {name}
-- Time of day: {time_context}
+- Time of day: {time_context}{timely_line}
 
 Rules:
 - Do NOT say "How can I help", "What would you like to work on", or any service-desk opener
@@ -6581,7 +6605,7 @@ Rules:
                     route="greeting",
                     user_input="greeting",
                 )
-                if self.phrasing_learner:
+                if self.phrasing_learner and not timely:
                     self.phrasing_learner.record_phrasing(
                         alice_thought={
                             "type": "greeting",
