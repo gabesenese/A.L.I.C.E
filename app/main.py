@@ -819,6 +819,7 @@ class ALICE:
             logger.info(" Initializing LLM Gateway with policy enforcement...")
             self.llm_gateway = get_llm_gateway(llm_engine=self.llm, learning_engine=self.learning_engine)
             logger.info("[OK] LLM Gateway active - all calls now policy-gated")
+            self._wire_llm_intent_arbiter()
 
             # 4.1.0 Contract Runtime Boundaries and Pipeline
             try:
@@ -2197,6 +2198,23 @@ class ALICE:
             "what we discussed so far",
         )
         return any(cue in response_l for cue in summary_response_cues)
+
+    def _wire_llm_intent_arbiter(self) -> None:
+        """Let the model break ties the phrase rules cannot.
+
+        NLPProcessor asks the model only on low-confidence or ambiguous routes,
+        and never overrides a concrete tool intent. attach_llm_gateway had no
+        caller, so that path never ran and every close call was settled by
+        keyword lists. Under the strict policy the model is not consulted.
+        """
+        nlp = getattr(self, "nlp", None)
+        gateway = getattr(self, "llm_gateway", None)
+        if nlp is None or gateway is None or getattr(self, "strict_no_llm", False):
+            return
+        try:
+            nlp.attach_llm_gateway(gateway)
+        except Exception as exc:
+            logger.warning("LLM intent arbitration unavailable: %s", exc)
 
     def _fallback_from_intent(
         self,

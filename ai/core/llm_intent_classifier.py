@@ -330,7 +330,9 @@ JSON response:"""
 
         # Low confidence (<0.5) - use self-consistency (3 samples)
         logger.info(f"Low confidence ({semantic_confidence:.2f}), using LLM self-consistency")
-        result = self.classify_with_cot(query, context, num_samples=3)
+        # One sample. Three self-consistency calls ran before the reply on every
+        # vague message, which a local model pays for in seconds of silence.
+        result = self.classify_with_cot(query, context, num_samples=1)
         if result:
             return (result.intent, result.confidence, "llm_consistency")
         else:
