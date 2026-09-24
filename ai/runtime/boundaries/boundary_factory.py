@@ -2928,6 +2928,35 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return ""
         return reply
 
+    def _phrase_clarification(req: ResponseRequest) -> str:
+        # The question names what was unclear in what they said; the fixed
+        # questions are only for when the model is not there to ask it.
+        llm = getattr(alice, "llm", None)
+        if llm is None:
+            return ""
+        meta = dict(req.decision.metadata or {})
+        ambiguity = ""
+        if meta.get("pronouns"):
+            ambiguity += f"\nUnclear reference: {', '.join(str(p) for p in meta['pronouns'])}"
+        if meta.get("options"):
+            ambiguity += f"\nIt could mean: {'; '.join(str(o) for o in meta['options'][:4])}"
+        context = (
+            "You are not sure what the user wants from this message." + ambiguity + "\n"
+            "Ask them one short question that names the specific thing that is unclear. "
+            "Reply with only the question."
+        )
+        try:
+            reply = str(
+                llm.chat(req.user_input, use_history=True, record_history=False, context=context, intent="clarify")
+                or ""
+            ).strip()
+        except Exception as exc:
+            _logger.debug("clarification phrasing skipped: %s", exc)
+            return ""
+        if not reply.endswith("?") or len(reply.split()) > 30:
+            return ""
+        return reply
+
     def _generate(req: ResponseRequest) -> ResponseOutput:
         if req.tool_result is not None:
             try:
@@ -3131,7 +3160,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     re.IGNORECASE,
                 )
             )
-            clarify_base = (
+            clarify_base = _phrase_clarification(req) or (
                 "Which file should I inspect?" if local_file_q else "What exact result should I produce next?"
             )
             clarify_text = _surface_text(
@@ -3144,12 +3173,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 text=clarify_text,
                 confidence=0.6,
                 requires_follow_up=True,
-                follow_up_question=_surface_text(
-                    "What exact result do you want?",
-                    user_input=req.user_input,
-                    intent=req.decision.intent,
-                    route="contract_clarification",
-                ),
+                follow_up_question=clarify_text,
                 metadata={"type": "clarification"},
             )
 
