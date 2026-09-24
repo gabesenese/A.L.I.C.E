@@ -50,3 +50,14 @@ SNOOZE_RE = re.compile(
     r"\s*(?:min(?:ute)?s?|m)?)?[.!]*$",
     re.IGNORECASE,
 )
+
+
+# The answer to "When should I remind you to call mom?": "at 5", "tomorrow morning".
+TIME_ANSWER_RE = re.compile(
+    r"^(?:(?:ok(?:ay)?|um+|uh+|hmm+|let'?s\s+say|say)[,\s]+)*"
+    r"(?:(?:at|in|by|around|on|this|next|tomorrow|tonight|today|noon|midnight)\b"
+    r"|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.?m\.?|p\.?m\.?)?(?=\W|$)"
+    r"|(?:mon|tues|wednes|thurs|fri|satur|sun)day\b)"
+    r"[\w\s:.,']{0,40}$",
+    re.IGNORECASE,
+)

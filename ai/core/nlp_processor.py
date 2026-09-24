@@ -136,7 +136,7 @@ except ImportError:
 from ai.core.followup_resolver import FollowUpResolver
 from ai.core.route_coordinator import RouteCoordinator, RouteCoordinatorConfig
 from ai.core.goal_recognizer import get_goal_recognizer
-from ai.core.followups import DAY_FOLLOWUP_RE, RESCHEDULE_RE, SNOOZE_RE, more_items
+from ai.core.followups import DAY_FOLLOWUP_RE, RESCHEDULE_RE, SNOOZE_RE, TIME_ANSWER_RE, more_items
 from ai.memory.forgetting import forget_topic
 from ai.planning.reminders import parse_timer
 from ai.core.foundation_layers import FoundationLayers
@@ -4412,7 +4412,7 @@ class NLPProcessor:
                 intent, _chosen_here = ("reminder:agenda" if _previous == "reminder:list" else _previous), True
             elif _previous == "notes:append" and more_items(_raw):
                 intent, _chosen_here = "notes:append", True
-            elif _previous == "reminder:set" and RESCHEDULE_RE.match(_raw):
+            elif _previous == "reminder:set" and (RESCHEDULE_RE.match(_raw) or TIME_ANSWER_RE.match(_raw)):
                 intent, _chosen_here = "reminder:set", True
             if _chosen_here:
                 intent_confidence = max(float(intent_confidence or 0.0), 0.88)

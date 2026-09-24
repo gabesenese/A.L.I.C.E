@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from ai.core.followups import RESCHEDULE_RE, SNOOZE_RE
+from ai.core.followups import RESCHEDULE_RE, SNOOZE_RE, TIME_ANSWER_RE
 from ai.planning.reminders import (
     ReminderStore,
     agenda,
@@ -39,6 +39,8 @@ class ReminderPlugin(PluginInterface):
         self.store = store or ReminderStore()
         # The reminder just set, so "actually make it 6" knows which one to move.
         self._last_set_id: Optional[str] = None
+        # What she asked "When should I remind you ...?" about, so "at 5" sets it.
+        self._awaiting_time: Optional[Tuple[str, str]] = None
 
     def initialize(self) -> bool:
         return True
@@ -68,6 +70,11 @@ class ReminderPlugin(PluginInterface):
                 }
             return {"success": True, "response": f"Cancelled: {names}.", "data": {"cancelled": names}}
 
+        awaiting, self._awaiting_time = self._awaiting_time, None
+        if awaiting and TIME_ANSWER_RE.match(str(query or "").strip()):
+            about_task = f"{awaiting[1]} {awaiting[0]}"
+            query = f"remind me {about_task} {query}"
+
         moving = RESCHEDULE_RE.match(str(query or "").strip())
         if moving:
             moved = self._reschedule(moving.group("when"), now)
@@ -94,6 +101,7 @@ class ReminderPlugin(PluginInterface):
         about = "about" if re.search(r"\b(?:remind\s+me|reminder)\s+about\b", str(query or ""), re.I) else "to"
         if due is None:
             # Asked rather than guessed: a reminder at the wrong time is worse than none.
+            self._awaiting_time = (task, about)
             return {
                 "success": True,
                 "response": f"When should I remind you {about} {said_back(task)}?",

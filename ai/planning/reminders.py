@@ -79,8 +79,20 @@ _IN_RE = re.compile(
 _AT_RE = re.compile(r"\b(?:at|by)\s+(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?(?=\W|$)", re.IGNORECASE)
 _BARE_TIME_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)(?=\W|$)", re.IGNORECASE)
 _NOON_RE = re.compile(r"\b(?:at\s+)?(noon|midnight)\b", re.IGNORECASE)
-_DAY_RE = re.compile(r"\b(tomorrow|tonight|today|this\s+(?:morning|afternoon|evening))\b", re.IGNORECASE)
-_DEFAULT_HOURS = {"tomorrow": 9, "today": 18, "tonight": 20, "morning": 9, "afternoon": 14, "evening": 19}
+_DAY_RE = re.compile(
+    r"\b(tomorrow(?:\s+(?:morning|afternoon|evening|night))?|tonight|today|this\s+(?:morning|afternoon|evening))\b",
+    re.IGNORECASE,
+)
+# "on Friday": without it, "remind me on friday at 3 to pay rent" was set for 3 today,
+# to "friday to pay rent".
+_WEEKDAY_RE = re.compile(
+    r"\b(?:on\s+|this\s+|next\s+|coming\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", re.IGNORECASE
+)
+_WEEKDAY_INDEX = {
+    name: index
+    for index, name in enumerate(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"])
+}
+_DEFAULT_HOURS = {"tomorrow": 9, "today": 18, "tonight": 20, "morning": 9, "afternoon": 14, "evening": 19, "night": 21}
 
 
 def _clock(hour: int, minute: int, meridiem: str) -> Tuple[int, int]:
@@ -133,20 +145,32 @@ def parse_reminder(text: str, now: Optional[datetime] = None) -> Optional[Tuple[
 
     day = _DAY_RE.search(body)
     day_word = (day.group(1).lower().split()[-1] if day else "") or ""
+    # "tomorrow morning" is tomorrow; its last word only says which part of it.
+    tomorrow = bool(day) and day.group(1).lower().startswith("tomorrow")
     if day:
         spans.append(day.span())
+    weekday = None if day else _WEEKDAY_RE.search(body)
+    if weekday:
+        spans.append(weekday.span())
 
     at = _AT_RE.search(body) or _BARE_TIME_RE.search(body)
     noon = _NOON_RE.search(body)
-    if due is None and (at or noon or day):
-        base = now + timedelta(days=1) if day_word == "tomorrow" else now
+    if due is None and (at or noon or day or weekday):
+        if weekday:
+            # The coming one: said on a Thursday, "Thursday" means next week's.
+            ahead = (_WEEKDAY_INDEX[weekday.group(1).lower()] - now.weekday()) % 7 or 7
+            base = now + timedelta(days=ahead)
+        else:
+            base = now + timedelta(days=1) if tomorrow else now
         if at:
             spans.append(at.span())
             hour, minute = int(at.group(1)), int(at.group(2) or 0)
             meridiem = at.group(3) or ""
-            if day_word == "tomorrow":
+            if tomorrow or weekday:
                 if meridiem or hour > 12:
                     hour, minute = _clock(hour, minute, meridiem)
+                elif day_word in {"afternoon", "evening", "night"} and hour < 12:
+                    hour += 12
                 elif hour < 7:
                     hour += 12
                 due = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
