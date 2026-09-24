@@ -931,6 +931,37 @@ def test_clamp_final_response_fast_lane_enforces_shorter_cap():
     assert len(clamped) <= 700
 
 
+def test_clamp_final_response_keeps_an_answer_about_language_models():
+    """Any reply containing "language model" used to be replaced by a stock line,
+    so every question about how models work came back unanswered."""
+    alice = ALICE.__new__(ALICE)
+
+    answer = "A language model predicts the next token from the ones before it. Transformers do it with attention."
+    clamped = alice._clamp_final_response(
+        answer,
+        tone="helpful",
+        response_type="general_response",
+        route="llm",
+        user_input="how does a language model work?",
+    )
+
+    assert clamped == answer
+
+
+def test_clamp_final_response_strips_only_the_disclaimer_clause():
+    alice = ALICE.__new__(ALICE)
+
+    clamped = alice._clamp_final_response(
+        "As an AI language model, I don't have preferences, but SQLite is fine for one user.",
+        tone="helpful",
+        response_type="general_response",
+        route="llm",
+        user_input="sqlite or postgres?",
+    )
+
+    assert clamped == "I don't have preferences, but SQLite is fine for one user."
+
+
 def test_clamp_final_response_project_ideation_meta_leak_uses_guidance():
     alice = ALICE.__new__(ALICE)
 

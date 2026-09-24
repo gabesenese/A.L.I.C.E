@@ -93,5 +93,8 @@ def test_generate_natural_response_uses_scoped_phrase_mode_and_clamp():
         LLMCallType.PHRASE_MICRO,
         LLMCallType.PHRASE_STRUCTURED,
     }
+    # The clamp removes the filler opener and the disclaimer clause and keeps the
+    # answer. This used to assert a 220-character cap, which only held because the
+    # whole reply was being swapped for a short stock line.
     assert "as an ai" not in out.lower()
-    assert len(out) <= 220
+    assert out.startswith("I can definitely help with that")

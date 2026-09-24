@@ -162,6 +162,7 @@ from ai.runtime.response_authority import (
     contract_respond_stage,
     finalize_conversational_surface,
 )
+from ai.runtime.response_discipline import strip_ai_disclaimer
 from ai.runtime.turn_orchestrator import run_default_turn
 
 # ===== 10 TIER IMPROVEMENTS (LAZY IMPORT UNDER QUARANTINE FLAGS) =====
@@ -1331,12 +1332,12 @@ class ALICE:
             )
         if "when i unwind" in lower or "i usually like to" in lower:
             return "A practical option is to recover with one short reset activity, then pick a single next step you can finish now."
-        if "as an ai" in lower or "language model" in lower:
-            if self._is_answerability_direct_question(user_input):
-                return self._answerability_gate_fallback_response(user_input)
-            if response_type == "clarification_prompt":
-                return "Please clarify the exact outcome you want so I can route this correctly."
-            return "I can help with that. Tell me the exact result you want."
+        # A self-disclaimer is not her voice, so the clause goes, and only the clause.
+        # This used to replace the whole answer whenever "language model" or "as an
+        # ai" appeared anywhere in it, so every question about how models work was
+        # answered with a stock line. Swapping a real answer for a canned one because
+        # of a word in it is the override north_star rule 2 calls the bug.
+        text = strip_ai_disclaimer(text).strip()
 
         # Tone-aware trim: keep professional tones concise.
         max_chars = {

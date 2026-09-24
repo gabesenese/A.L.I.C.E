@@ -11,6 +11,7 @@ from ai.runtime.response_discipline import (
     apply_response_discipline,
     guard_unverified_execution_claims,
     limit_sentences,
+    strip_ai_disclaimer,
     strip_filler_closing,
     strip_filler_opening,
 )
@@ -152,3 +153,32 @@ def test_an_abbreviation_is_not_a_sentence_ending():
 def test_a_code_block_is_never_cut():
     text = "Run this first. Then check the log. It should be quiet.\n```\npytest -q\n```\nThat is all of it."
     assert limit_sentences(text, max_sentences=2) == text
+
+
+@pytest.mark.parametrize(
+    "reply,expected",
+    [
+        (
+            "As an AI language model, I don't have preferences. SQLite is fine here.",
+            "I don't have preferences. SQLite is fine here.",
+        ),
+        ("As a large language model, I can't browse. The docs say 3.12.", "I can't browse. The docs say 3.12."),
+        ("Fair question. As an AI, it's not something I feel.", "Fair question. It's not something I feel."),
+        ("As an AI I think the tradeoff is fine.", "I think the tradeoff is fine."),
+    ],
+)
+def test_a_self_disclaimer_loses_the_clause_and_keeps_the_answer(reply, expected):
+    assert strip_ai_disclaimer(reply) == expected
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Transformers are the architecture behind every modern language model.",
+        "As a language model grows, its loss falls roughly as a power law.",
+        "It shows up in industries such as an airline's booking system.",
+        "How does a language model work? It predicts the next token from the ones before it.",
+    ],
+)
+def test_talking_about_language_models_is_not_a_disclaimer(reply):
+    assert strip_ai_disclaimer(reply) == reply

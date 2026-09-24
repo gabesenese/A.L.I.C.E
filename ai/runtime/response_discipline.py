@@ -78,6 +78,29 @@ _ACT_LINE_RE = re.compile(
 )
 
 
+# "As an AI language model, ..." is a generic chatbot's opening, not her voice. The
+# clause must start a sentence and end at a comma or colon, or run straight into
+# "I", so a sentence about language models is left alone: "As a language model
+# grows, its loss falls" does not match, and neither does "such as an airline".
+_AI_DISCLAIMER_RE = re.compile(
+    r"(^|(?<=[.!?])[ \t]+)"
+    r"as an? (?:ai|artificial intelligence|(?:large )?language model)\b"
+    r"(?: (?:language )?model| assistant| chatbot)?"
+    r"(?:[ \t]*[,:][ \t]*|[ \t]+(?=i\b))"
+    r"(\w?)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def strip_ai_disclaimer(text: str) -> str:
+    """Remove a self-disclaimer clause and keep the rest of the sentence.
+
+    Only the clause goes. The words on their own are usually the subject of the
+    question ("how does a language model work?"), not a disclaimer.
+    """
+    return _AI_DISCLAIMER_RE.sub(lambda m: m.group(1) + m.group(2).upper(), str(text or ""))
+
+
 def strip_speaker_label(text: str) -> str:
     """Remove transcript scaffolding the model copied out of its own examples.
 
