@@ -108,6 +108,51 @@ _FORBIDDEN_OPERATOR_CHATTER_MARKERS = (
 )
 
 
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
+
+
+def drop_sentences(text: str, should_drop) -> str:
+    """Remove whole sentences for which ``should_drop(sentence, index)`` is true.
+
+    Works line by line so the reply keeps its shape: paragraphs, list items
+    and fenced code come back where they were. ``index`` counts kept-or-dropped
+    sentences from the start of the reply. A line left empty by the removal is
+    dropped; blank lines the model wrote are kept.
+
+    The strippers this replaces split on newlines and rejoined with spaces,
+    which flattened every list and paragraph into one line.
+    """
+    out: list[str] = []
+    in_fence = False
+    index = 0
+    for line in str(text or "").replace("\r\n", "\n").split("\n"):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence or not line.strip():
+            out.append(line.rstrip())
+            continue
+        prefix = ""
+        body = line.strip()
+        marker = _LIST_ITEM.match(line)
+        if marker:
+            prefix = marker.group(0)
+            body = line[marker.end() :].strip()
+        kept: list[str] = []
+        for sentence in _SENTENCE_BREAK.split(body):
+            if not sentence.strip():
+                continue
+            if not should_drop(sentence.strip(), index):
+                kept.append(sentence.strip())
+            index += 1
+        if kept:
+            out.append(prefix + " ".join(kept))
+    joined = "\n".join(out)
+    return re.sub(r"\n{3,}", "\n\n", joined).strip()
+
+
 def strip_meta_response_artifacts(text: str) -> str:
     cleaned = str(text or "")
     cleaned = cleaned.replace("\r\n", "\n")
@@ -124,58 +169,37 @@ def strip_meta_response_artifacts(text: str) -> str:
         "here is a rewritten version",
         "rewritten:",
     )
-    parts = re.split(r"(?<=[.!?])\s+|\n+", cleaned)
-    kept: list[str] = []
-    for part in parts:
-        sentence = str(part or "").strip()
-        if not sentence:
-            continue
+    # Drop marker sentences anywhere, and a thinking-aloud sentence only when
+    # nothing came before it.
+    dropped_lead = [True]
+
+    def _drop(sentence: str, _index: int) -> bool:
         low = sentence.lower()
         if any(marker in low for marker in banned_markers):
-            continue
-        # Drop standalone thinking-aloud sentences mid-response
-        is_pure_filler = any(re.match(p, low, re.IGNORECASE) for p in _THINKING_ALOUD_PREFIXES)
-        if is_pure_filler and len(kept) == 0:
-            continue
-        kept.append(sentence)
-    cleaned = " ".join(kept).strip()
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
+            return True
+        if dropped_lead[0] and any(re.match(p, low, re.IGNORECASE) for p in _THINKING_ALOUD_PREFIXES):
+            return True
+        dropped_lead[0] = False
+        return False
+
+    cleaned = drop_sentences(cleaned, _drop)
+    cleaned = re.sub(r"[ \t]+([,.!?])", r"\1", cleaned)
     cleaned = _TRAILING_LECTURE_PATTERNS.sub("", cleaned).strip()
     return cleaned
 
 
 def _suppress_passive_operator_chatter(text: str) -> str:
-    out_lines: list[str] = []
-    for line in re.split(r"\n+", str(text or "")):
-        line_clean = str(line or "").strip()
-        if not line_clean:
-            continue
-        low = line_clean.lower()
-        if any(marker in low for marker in _PASSIVE_OPERATOR_LINES):
-            continue
-        out_lines.append(line_clean)
-    return "\n".join(out_lines).strip()
+    return drop_sentences(text, lambda sentence, _i: any(m in sentence.lower() for m in _PASSIVE_OPERATOR_LINES))
 
 
 def sanitize_operator_chatter(text: str) -> str:
     source = str(text or "").strip()
     if not source:
         return ""
-    fragments = re.split(r"(?<=[.!?])\s+|\n+", source)
-    kept: list[str] = []
-    for fragment in fragments:
-        sentence = str(fragment or "").strip()
-        if not sentence:
-            continue
-        low = sentence.lower()
-        if any(marker in low for marker in _FORBIDDEN_OPERATOR_CHATTER_MARKERS):
-            continue
-        kept.append(sentence)
-    cleaned = " ".join(kept).strip()
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
-    return cleaned
+    return drop_sentences(
+        source,
+        lambda sentence, _i: any(marker in sentence.lower() for marker in _FORBIDDEN_OPERATOR_CHATTER_MARKERS),
+    )
 
 
 def detect_context_signal(user_input: str, perception_frame: Dict[str, Any] | None = None) -> Dict[str, Any]:
