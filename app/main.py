@@ -6681,14 +6681,14 @@ class ALICE:
             if self.speech:
                 self.voice_enabled = not self.voice_enabled
                 status = "enabled" if self.voice_enabled else "disabled"
-                print(f"\n[OK] Voice mode {status}")
+                print(f"\nVoice mode {status}")
             else:
-                print("\n[ERROR] Voice engine not available")
+                print("\nVoice engine not available")
 
         elif cmd == "/clear":
             self.llm.clear_history()
             self.context.clear_short_term_memory()
-            print("\n[OK] Conversation history cleared")
+            print("\nConversation history cleared")
 
         elif cmd == "/memory":
             stats = self.memory.get_statistics()
@@ -6721,7 +6721,7 @@ class ALICE:
                 country = location_parts[1].strip() if len(location_parts) > 1 else None
                 self.context.user_prefs.set_location(city, country)
                 self.context.save_context()
-                print(f"\n[OK] Location set to: {self.context.user_prefs.location}")
+                print(f"\nLocation set to: {self.context.user_prefs.location}")
             else:
                 current = self.context.user_prefs.location or "Not set"
                 print(f"\nCurrent location: {current}")
@@ -6730,33 +6730,29 @@ class ALICE:
             self._save_conversation_state()
             self.context.save_context()
             self.memory._save_memories()
-            print("\n[OK] Conversation state saved successfully")
+            print("\nConversation state saved successfully")
 
         elif cmd == "/summary":
             if self.summarizer:
                 try:
                     summary_text = self.summarizer.get_conversation_summary()
                     print("\n Conversation Summary:")
-                    print("=" * 50)
                     print(summary_text)
-                    print("=" * 50)
-                except Exception as e:
-                    print(f"\n[ERROR] Failed to get summary: {e}")
+                except Exception:
+                    print("\nI couldn't get the summary just now.")
             else:
-                print("\n[ERROR] Conversation summarizer not available")
+                print("\nConversation summarizer not available")
 
         elif cmd == "/context":
             if self.summarizer:
                 try:
                     context_summary = self.summarizer.get_context_summary()
                     print("\n Current Context:")
-                    print("=" * 50)
                     print(context_summary)
-                    print("=" * 50)
-                except Exception as e:
-                    print(f"\n[ERROR] Failed to get context: {e}")
+                except Exception:
+                    print("\nI couldn't get the context just now.")
             else:
-                print("\n[ERROR] Conversation summarizer not available")
+                print("\nConversation summarizer not available")
 
         elif cmd == "/topics":
             if self.summarizer:
@@ -6764,24 +6760,21 @@ class ALICE:
                     context = self.summarizer.get_detailed_context()
                     topics = context.get("frequent_topics", [])
                     print("\nConversation Topics:")
-                    print("=" * 50)
                     if topics:
                         for i, topic in enumerate(topics, 1):
                             print(f"   {i}. {topic.title()}")
                     else:
                         print("   No topics identified yet.")
-                    print("=" * 50)
-                except Exception as e:
-                    print(f"\n[ERROR] Failed to get topics: {e}")
+                except Exception:
+                    print("\nI couldn't get the topics just now.")
             else:
-                print("\n[ERROR] Conversation summarizer not available")
+                print("\nConversation summarizer not available")
 
         elif cmd == "/entities":
             if self.relationship_tracker:
                 try:
                     stats = self.relationship_tracker.get_statistics()
                     print("\n Tracked Entities:")
-                    print("=" * 50)
                     print(f"Total entities: {stats['total_entities']}")
 
                     if stats["most_connected_entities"]:
@@ -6791,19 +6784,16 @@ class ALICE:
 
                     if stats["entity_types"]:
                         print(f"\nEntity types: {', '.join(stats['entity_types'].keys())}")
-
-                    print("=" * 50)
-                except Exception as e:
-                    print(f"\n[ERROR] Failed to get entities: {e}")
+                except Exception:
+                    print("\nI couldn't get the entities just now.")
             else:
-                print("\n[ERROR] Entity relationship tracker not available")
+                print("\nEntity relationship tracker not available")
 
         elif cmd == "/relationships":
             if self.relationship_tracker:
                 try:
                     stats = self.relationship_tracker.get_statistics()
                     print("\nEntity Relationships:")
-                    print("=" * 50)
                     print(f"Total relationships: {stats['total_relationships']}")
 
                     if stats["relationship_types"]:
@@ -6819,12 +6809,10 @@ class ALICE:
                             rel_type = rel["relationship_type"].replace("_", " ")
                             confidence = rel["confidence"]
                             print(f"   • {source} {rel_type} {target} (confidence: {confidence:.2f})")
-
-                    print("=" * 50)
-                except Exception as e:
-                    print(f"\n[ERROR] Failed to get relationships: {e}")
+                except Exception:
+                    print("\nI couldn't get the relationships just now.")
             else:
-                print("\n[ERROR] Entity relationship tracker not available")
+                print("\nEntity relationship tracker not available")
 
         elif cmd.startswith("/mem-list"):
             # List memories with optional filter by type
@@ -6837,7 +6825,7 @@ class ALICE:
                 "procedural",
                 "document",
             ]:
-                print(f"\n[ERROR] Invalid memory type: {memory_type}")
+                print(f"\nInvalid memory type: {memory_type}")
                 print("   Valid types: episodic, semantic, procedural, document")
                 return
 
@@ -6856,7 +6844,6 @@ class ALICE:
 
             title = f"{'All' if not memory_type else memory_type.title()} Memories"
             print(f"\n{title}:")
-            print("=" * 70)
 
             if not memories:
                 print("   No memories found.")
@@ -6872,20 +6859,17 @@ class ALICE:
                 if len(memories) > 20:
                     print(f"   ... and {len(memories) - 20} more memories")
 
-            print("=" * 70)
-
         elif cmd.startswith("/mem-search"):
             # Search memories by content
             parts = command.split(maxsplit=1)
             if len(parts) < 2:
-                print("\n[ERROR] Usage: /mem-search <query>")
+                print("\nUsage: /mem-search <query>")
                 return
 
             query = parts[1].strip()
             results = self.memory.recall_memory(query, top_k=10, min_similarity=0.5)
 
             print(f"\n Memory Search Results for: '{query}'")
-            print("=" * 70)
 
             if not results:
                 print("   No matching memories found.")
@@ -6903,13 +6887,11 @@ class ALICE:
                     print(f"      Tags: {', '.join(result['tags']) if result['tags'] else 'none'}")
                     print()
 
-            print("=" * 70)
-
         elif cmd.startswith("/mem-delete"):
             # Delete memory by ID
             parts = command.split(maxsplit=1)
             if len(parts) < 2:
-                print("\n[ERROR] Usage: /mem-delete <memory_id>")
+                print("\nUsage: /mem-delete <memory_id>")
                 return
 
             memory_id = parts[1].strip()
@@ -6938,7 +6920,7 @@ class ALICE:
                         self.memory.vector_store.save(self.memory.vector_store_path)
 
                         deleted = True
-                        print(f"\n[OK] Deleted {memory_type} memory:")
+                        print(f"\nDeleted {memory_type} memory:")
                         print(f"   ID: {memory_id}")
                         print(f"   Content: {content_preview}")
                         break
@@ -6947,7 +6929,7 @@ class ALICE:
                     break
 
             if not deleted:
-                print(f"\n[ERROR] Memory not found: {memory_id}")
+                print(f"\nMemory not found: {memory_id}")
 
         elif cmd == "/patterns":
             # Show proposed patterns awaiting approval
@@ -6957,12 +6939,11 @@ class ALICE:
 
                     self.pattern_miner = PatternMiner()
                 except Exception as e:
-                    print(f"\n[ERROR] Pattern miner not available: {e}")
+                    print(f"\nPattern miner not available: {e}")
                     return
 
             stats = self.pattern_miner.get_pattern_stats()
             print("\n[PATTERNS] Pattern Learning System:")
-            print("=" * 70)
             print(f"   Total Proposals: {stats['total_proposals']}")
             print(f"   Pending Approval: {stats['pending_approval']}")
             print(f"   Approved: {stats['approved']}")
@@ -6989,7 +6970,7 @@ class ALICE:
                 if len(stats["pending_patterns"]) > 5:
                     print(f"\n   ... and {len(stats['pending_patterns']) - 5} more pending patterns")
             else:
-                print("   [OK] No pending patterns. All proposed patterns have been reviewed.")
+                print("   No pending patterns. All proposed patterns have been reviewed.")
 
             print("\n" + "=" * 70)
 
@@ -6997,7 +6978,7 @@ class ALICE:
             # Approve a specific pattern
             parts = command.split(maxsplit=2)
             if len(parts) < 3:
-                print("\n[ERROR] Usage: /patterns approve <pattern_id>")
+                print("\nUsage: /patterns approve <pattern_id>")
                 return
 
             pattern_id = parts[2].strip()
@@ -7008,15 +6989,15 @@ class ALICE:
                 self.pattern_miner = PatternMiner()
 
             if self.pattern_miner.approve_pattern(pattern_id):
-                print(f"\n[OK] Pattern {pattern_id} approved and will be used for future interactions")
+                print(f"\nPattern {pattern_id} approved and will be used for future interactions")
             else:
-                print(f"\n[ERROR] Pattern {pattern_id} not found")
+                print(f"\nPattern {pattern_id} not found")
 
         elif cmd.startswith("/patterns reject"):
             # Reject a specific pattern
             parts = command.split(maxsplit=2)
             if len(parts) < 3:
-                print("\n[ERROR] Usage: /patterns reject <pattern_id>")
+                print("\nUsage: /patterns reject <pattern_id>")
                 return
 
             pattern_id = parts[2].strip()
@@ -7029,7 +7010,7 @@ class ALICE:
             if self.pattern_miner.reject_pattern(pattern_id):
                 print(f"\n\u2713 Pattern {pattern_id} rejected")
             else:
-                print(f"\n[ERROR] Pattern {pattern_id} not found")
+                print(f"\nPattern {pattern_id} not found")
 
         elif cmd.startswith("/correct"):
             self._handle_correction_command(cmd)
@@ -7059,7 +7040,7 @@ class ALICE:
             self._handle_operator_status_command()
 
         else:
-            print(f"\n[ERROR] Unknown command: {command}")
+            print(f"\nUnknown command: {command}")
             print("   Type /help for available commands")
 
     def _get_greeting(self) -> str:

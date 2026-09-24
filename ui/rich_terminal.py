@@ -162,7 +162,7 @@ class RichTerminalUI:
 
     def print_error(self, text):
         """Display error message"""
-        self.console.print(f"[{self.colors['error']}]ERROR:[/{self.colors['error']}] {text}")
+        self.console.print(f"[{self.colors['error']}]{text}[/{self.colors['error']}]")
         self.console.print()
 
     def print_info(self, text):
@@ -230,15 +230,4 @@ class RichTerminalUI:
             box=box.DOUBLE,
         )
         self.console.print(panel)
-        self.console.print()
-
-    def show_goodbye(self):
-        """Display goodbye message"""
-        goodbye_panel = Panel(
-            f"[{self.colors['accent']}]Goodbye! A.L.I.C.E shutting down...[/{self.colors['accent']}]",
-            border_style=self.colors["border"],
-            box=box.ROUNDED,
-        )
-        self.console.print()
-        self.console.print(goodbye_panel, justify="center")
         self.console.print()

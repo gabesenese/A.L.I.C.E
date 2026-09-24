@@ -122,7 +122,13 @@ def start_alice_rich(
                 "/exit",
                 "/quit",
             ]:
-                ui.show_goodbye()
+                try:
+                    with ui.thinking_spinner():
+                        farewell = str(alice._get_farewell() or "").strip()
+                except Exception:
+                    farewell = ""
+                if farewell:
+                    ui.print_assistant_response(farewell)
                 break
 
             if not user_input:
@@ -131,9 +137,6 @@ def start_alice_rich(
             # Handle special commands
             if user_input.startswith("/"):
                 alice._handle_command(user_input)
-                if user_input.lower() in ["/exit", "/quit"]:
-                    ui.show_goodbye()
-                    break
                 continue
 
             # Process input
@@ -143,7 +146,10 @@ def start_alice_rich(
                     response = alice.process_input(user_input, use_voice=voice_enabled)
                 ui.print_assistant_response(response)
             except Exception as e:
-                ui.print_error(str(e))
+                # The exception text is for the developer, not the conversation.
+                ui.print_error("Something broke on my side while handling that. Try it again, or put it another way.")
+                if debug:
+                    ui.print_info(f"{type(e).__name__}: {e}")
 
         alice.shutdown()
 
