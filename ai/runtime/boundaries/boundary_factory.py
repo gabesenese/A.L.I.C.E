@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -527,6 +528,38 @@ def _llm_unavailable_text(exc: LLMUnavailableError) -> str:
         "I can't reach my language model, so I can't answer that right now. "
         "Check that Ollama is running (`ollama serve`), then ask again."
     )
+
+
+# Keys in a plugin's data dict that describe the plumbing, not the answer.
+_TOOL_PLUMBING_KEYS = frozenset({"formulate", "message_code", "plugin_type", "use_fallback_message"})
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _tool_facts_block(tool_payload: Dict[str, Any], *, limit: int = 6000) -> str:
+    """The structured result a tool returned, as the model will read it."""
+    nested = tool_payload.get("data") if isinstance(tool_payload.get("data"), dict) else {}
+    facts: Dict[str, Any] = {k: v for k, v in (nested or {}).items() if k not in _TOOL_PLUMBING_KEYS}
+    local = tool_payload.get("local_execution")
+    if isinstance(local, dict) and local:
+        facts["local_execution"] = local
+    if not facts:
+        return ""
+    text = json.dumps(facts, default=str, ensure_ascii=False)
+    return text if len(text) <= limit else text[:limit] + " ...(truncated)"
+
+
+def _numbers_grounded(reply: str, *sources: str) -> bool:
+    """Every number in the reply appears in what the tool returned (rounding allowed).
+
+    Weather figures are the canonical fabrication: a model that paraphrases a
+    tool result is allowed to change the words, never the numbers.
+    """
+    known: set[float] = set()
+    for source in sources:
+        for token in _NUMBER.findall(str(source or "")):
+            value = float(token)
+            known.update({value, float(round(value))})
+    return all(float(token) in known for token in _NUMBER.findall(str(reply or "")))
 
 
 def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
@@ -2785,6 +2818,35 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
         return tool_result
 
+    def _narrate_tool_result(req: ResponseRequest, tool_payload: Dict[str, Any], tool_response: str) -> str:
+        llm = getattr(alice, "llm", None)
+        if llm is None:
+            return tool_response
+        facts = _tool_facts_block(tool_payload)
+        context = (
+            f"You just ran {req.tool_result.tool_name or 'a tool'} for the user's message. "
+            "Answer them in your own words from this result, in a sentence or two, "
+            "or a short list if they asked for a list. "
+            "Use only what the result contains; do not add numbers, names or details it does not have.\n"
+            f"Tool summary: {tool_response}"
+        )
+        if facts:
+            context += f"\nTool data: {facts}"
+        try:
+            reply = str(
+                llm.chat(req.user_input, use_history=True, record_history=False, context=context, intent="tool_wrap")
+                or ""
+            ).strip()
+        except Exception as exc:
+            _logger.debug("tool narration skipped: %s", exc)
+            return tool_response
+        if not reply:
+            return tool_response
+        if not _numbers_grounded(reply, facts, tool_response, req.user_input):
+            _logger.info("tool narration dropped: states a number the tool did not return")
+            return tool_response
+        return reply
+
     def _generate(req: ResponseRequest) -> ResponseOutput:
         if req.tool_result is not None:
             try:
@@ -3072,29 +3134,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 except Exception:
                     pass
 
-                # Add a conversational layer via LLM, but the data string must be
-                # used verbatim — the LLM may only append a natural follow-up.
-                is_weather_turn = str(req.decision.intent or "").startswith("weather:") or str(
-                    req.tool_result.tool_name or ""
-                ).lower().startswith("weather")
-                if is_weather_turn:
-                    try:
-                        _weather_prompt = (
-                            f'The user said: "{req.user_input}"\n\n'
-                            f"Weather data:\n{tool_response}\n\n"
-                            "Reply in 1-2 sentences. Copy the weather data above exactly as written — "
-                            "do not rephrase it, do not change any day label, do not add any detail "
-                            "not present in the data. "
-                            "If the user's message includes personal context (like having plans or an event), "
-                            "add one brief natural follow-up question at the end."
-                        )
-                        _llm_text = str(
-                            alice.llm.chat(_weather_prompt, intent="weather_wrap", use_history=False) or ""
-                        ).strip()
-                        if _llm_text:
-                            tool_response = _llm_text
-                    except Exception:
-                        pass
+                # The plugin's string is how a CLI would report the result. The
+                # model gets the structured data and answers the question that was
+                # asked; the plugin string stays as the fallback when the model is
+                # unreachable, says nothing, or states a number the tool did not return.
+                tool_response = _narrate_tool_result(req, tool_payload, tool_response)
 
                 return ResponseOutput(
                     text=_surface_text(

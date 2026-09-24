@@ -1641,3 +1641,52 @@ def test_tool_turns_see_the_conversation_and_are_remembered():
     assert "runtime and memory packages" in result.response_text
     assert alice.llm.conversation_history[-2] == {"role": "user", "content": "which files are in the ai folder?"}
     assert "runtime and memory packages" in alice.llm.conversation_history[-1]["content"]
+
+
+class _NarratingLlm:
+    """Phrases tool results; records what it was shown."""
+
+    def __init__(self, reply):
+        self.reply = reply
+        self.calls = []
+
+    def chat(self, user_input, use_history=True, **kwargs):
+        self.calls.append({"user_input": user_input, "use_history": use_history, **kwargs})
+        return self.reply
+
+
+def test_tool_turn_is_answered_by_the_model_from_the_tool_data():
+    alice = _FakeAlice()
+    alice.llm = _NarratingLlm("Around 22 degrees and partly cloudy in Kitchener right now.")
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="weather nested", user_id="u1", turn_number=1)
+
+    assert result.response_text == "Around 22 degrees and partly cloudy in Kitchener right now."
+    (call,) = alice.llm.calls
+    assert call["user_input"] == "weather nested"
+    assert call["record_history"] is False
+    assert '"temperature": 22' in call["context"]
+    assert "partly cloudy" in call["context"]
+    assert "message_code" not in call["context"]
+
+
+def test_tool_narration_that_invents_a_number_falls_back_to_the_tool_text():
+    alice = _FakeAlice()
+    alice.llm = _NarratingLlm("It's 30 degrees and sunny in Kitchener.")
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="weather nested", user_id="u1", turn_number=1)
+
+    assert "30" not in result.response_text
+    assert result.response_text.startswith("WEATHER_REPORT")
+
+
+def test_tool_turn_keeps_the_tool_text_when_the_model_is_down():
+    alice = _FakeAlice()
+    alice.llm = _DownLlm()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="weather in boston", user_id="u1", turn_number=1)
+
+    assert "sunny" in result.response_text.lower()
