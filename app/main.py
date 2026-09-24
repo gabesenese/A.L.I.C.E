@@ -96,11 +96,7 @@ from ai.core.turn_routing_policy import get_turn_routing_policy
 from ai.core.live_state_service import get_live_state_service
 from ai.core.execution_verifier import get_execution_verifier
 from ai.core.clarification_resolver import get_clarification_resolver
-from ai.core.episodic_memory_engine import EpisodicMemoryEngine
 from ai.core.adaptive_response_style import AdaptiveResponseStyle
-from ai.core.semantic_memory_index import SemanticMemoryIndex
-from ai.core.memory_consolidator import MemoryConsolidator
-from ai.core.cross_session_pattern_detector import CrossSessionPatternDetector
 from ai.core.system_design_response_guard import SystemDesignResponseGuard
 from ai.core.unified_action_engine import get_unified_action_engine
 from ai.core.entity_registry import get_entity_registry
@@ -361,13 +357,8 @@ class ALICE:
         self.plan_executor = None
         self.reasoning_planner = None
         self.persistent_task_queue = None
-        self.episodic_memory_engine = None
         self.adaptive_response_style = None
-        self.semantic_memory_index = None
-        self.memory_consolidator = None
-        self.cross_session_pattern_detector = None
         self.system_design_response_guard = None
-        self._episodic_turn_counter = 0
         self._turn_count = 0
         self._last_routed_intent = ""
         self._last_routed_confidence = 0.0
@@ -1112,11 +1103,7 @@ class ALICE:
                 ],
             },
         }
-        self.episodic_memory_engine = EpisodicMemoryEngine()
         self.adaptive_response_style = AdaptiveResponseStyle()
-        self.semantic_memory_index = SemanticMemoryIndex()
-        self.memory_consolidator = MemoryConsolidator()
-        self.cross_session_pattern_detector = CrossSessionPatternDetector()
         self.system_design_response_guard = SystemDesignResponseGuard()
 
     def _is_location_query(self, user_input: str) -> bool:
@@ -5979,36 +5966,6 @@ class ALICE:
                     )
                 except Exception as _co_err:
                     logger.debug(f"[CognitiveOrchestrator] {_co_err}")
-
-            if self.episodic_memory_engine:
-                self.episodic_memory_engine.add_episode(
-                    user_input=user_input,
-                    intent=intent,
-                    response=response,
-                    entities=entities or {},
-                )
-                self._episodic_turn_counter += 1
-
-            if self.semantic_memory_index:
-                _doc_id = f"turn-{int(time.time() * 1000)}"
-                _doc_text = f"{intent} {user_input} {response[:240]}"
-                self.semantic_memory_index.add(_doc_id, _doc_text)
-
-            if self.cross_session_pattern_detector:
-                self.cross_session_pattern_detector.observe(intent)
-
-            if (
-                self.memory_consolidator
-                and self.episodic_memory_engine
-                and self._episodic_turn_counter > 0
-                and self._episodic_turn_counter % 15 == 0
-            ):
-                _episodes = self.episodic_memory_engine.recall_recent(limit=30)
-                _consolidated = self.memory_consolidator.consolidate(_episodes)
-                self._internal_reasoning_state = {
-                    **(getattr(self, "_internal_reasoning_state", {}) or {}),
-                    "memory_consolidation": _consolidated,
-                }
 
             # Process with unified context engine
             if self.context:
