@@ -332,12 +332,34 @@ def is_casual_weather_context(text: str, actionable_clause: str) -> bool:
 # ── PHASE 1 pattern sets ──────────────────────────────────────────────────────
 # System
 _P1_SYSTEM_STATUS: frozenset = frozenset({"status", "doing", "health", "how", "report", "info"})
-_P1_SYSTEM_RESOURCES: frozenset = frozenset(
-    {"cpu", "memory", "ram", "disk", "battery", "gpu", "processes", "ports", "network"}
+# A resource question is about this machine only when something anchors it
+# here: "my gpu", "disk space", "ports listening", "how much ram do I have".
+# The words used to be matched as substrings next to verbs like "is" (inside
+# "this" and "list") and "how much", so "how much memory does a python dict
+# use" was answered with a system status report. "my memory" is left out: that
+# is Alice's memory, not the RAM.
+_P1_RESOURCE_RE = re.compile(r"\b(?:cpu|memory|ram|disk|battery|gpu|processes|ports|network)\b")
+_P1_MACHINE_ANCHOR_RE = re.compile(
+    r"\b(?:my|this|your|the system'?s?|the computer'?s?|the machine'?s?)\s+(?:\w+\s+)?"
+    r"(?:cpu|ram|disk|battery|gpu|processes|ports|network)\b"
+    r"|\b(?:cpu|memory|ram|disk|gpu|battery)\s+(?:usage|load|space|level|temp|temperature|free|left)\b"
+    r"|\b(?:ports?|processes)\s+(?:are\s+)?(?:open|listening|running)\b"
+    r"|\b(?:cpu|memory|ram|disk|gpu|battery)\b.*\bdo i have\b"
 )
-_P1_SYSTEM_RESOURCE_VERBS: frozenset = frozenset(
-    {"usage", "available", "how much", "low", "check", "is", "running", "listening", "open"}
+_P1_CODE_CONTEXT_RE = re.compile(
+    r"\b(?:python|javascript|typescript|java|rust|golang|dict|dictionary|list|array|tuple|object|"
+    r"variable|function|class|leak|model|transformer|neural|layer|algorithm|program|code)\b"
 )
+
+
+def _is_machine_resource_query(text_lower: str) -> bool:
+    return (
+        bool(_P1_RESOURCE_RE.search(text_lower))
+        and bool(_P1_MACHINE_ANCHOR_RE.search(text_lower))
+        and not _P1_CODE_CONTEXT_RE.search(text_lower)
+    )
+
+
 _P1_SYSTEM_DIRECT: frozenset = frozenset(
     {
         "system status",
@@ -4474,14 +4496,7 @@ class NLPProcessor:
             return "system:status", 0.95
         if "system" in text_lower and any(word in text_lower for word in _P1_SYSTEM_STATUS):
             return "system:status", 0.9
-        # Resource check: "how is/is my + cpu/memory/disk/battery"
-        if any(word in text_lower for word in ["how is", "is my", "is the"]) and any(
-            word in text_lower for word in _P1_SYSTEM_RESOURCES
-        ):
-            return "system:status", 0.9
-        if any(word in text_lower for word in _P1_SYSTEM_RESOURCES) and any(
-            word in text_lower for word in _P1_SYSTEM_RESOURCE_VERBS
-        ):
+        if _is_machine_resource_query(text_lower):
             return "system:status", 0.9
 
         # File operations - MUST CHECK BEFORE notes (to prevent "notes.txt" matching notes plugin)
