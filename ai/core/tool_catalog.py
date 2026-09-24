@@ -21,6 +21,10 @@ from ai.infrastructure.paths import project_root
 from ai.core.web_search import search_web, web_search_enabled
 
 RISK_READ = "read"
+# His own reminders, lists and notes: reversible, and what an assistant is for.
+# Offered in ordinary conversation, where writes that change code are not, so
+# "yes, remind me at 4" can actually set the reminder.
+RISK_PERSONAL = "personal"
 RISK_WRITE = "write"
 RISK_OUTWARD = "outward"
 
@@ -472,10 +476,80 @@ CATALOG: List[ToolSpec] = [
             },
             "required": ["title"],
         },
-        risk=RISK_WRITE,
+        risk=RISK_PERSONAL,
         intent="notes:create",
         query_from="create a note titled {title}",
         entity_map={"title": "title", "content": "content"},
+    ),
+    ToolSpec(
+        name="set_reminder",
+        description=(
+            "Set a reminder that will be said to the user at a time. Use it when he asks to be reminded, "
+            "or says yes to your offer to remind him. If he has not said when, ask him first."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "What to remind him about, e.g. 'call the bank'."},
+                "when": {
+                    "type": "string",
+                    "description": "When, in his words: 'at 4pm', 'tomorrow at 9', 'in 20 minutes', 'tonight'.",
+                },
+            },
+            "required": ["task", "when"],
+        },
+        risk=RISK_PERSONAL,
+        intent="reminder:set",
+        query_from="remind me to {task} {when}",
+    ),
+    ToolSpec(
+        name="list_reminders",
+        description="The reminders the user has set that have not gone off yet.",
+        parameters={"type": "object", "properties": {}, "required": []},
+        intent="reminder:list",
+        query_from="what are my reminders",
+    ),
+    ToolSpec(
+        name="check_agenda",
+        description=(
+            "What the user has on today, tomorrow or this week, from his reminders and his notes with due "
+            "dates. Use it before saying anything about his schedule."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {"when": {"type": "string", "enum": ["today", "tomorrow", "this week"]}},
+            "required": [],
+        },
+        intent="reminder:agenda",
+        query_from="what do I have {when}",
+    ),
+    ToolSpec(
+        name="add_to_list",
+        description="Add items to one of the user's lists, starting the list if it does not exist yet.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "items": {"type": "string", "description": "What to add, e.g. 'milk, eggs and bread'."},
+                "list_name": {"type": "string", "description": "Which list, e.g. 'shopping list', 'todo list'."},
+            },
+            "required": ["items", "list_name"],
+        },
+        risk=RISK_PERSONAL,
+        intent="notes:append",
+        query_from="add {items} to my {list_name} list",
+    ),
+    ToolSpec(
+        name="read_list",
+        description="What is on one of the user's lists.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "list_name": {"type": "string", "description": "Which list, e.g. 'shopping list'."},
+            },
+            "required": ["list_name"],
+        },
+        intent="notes:list",
+        query_from="what's on my {list_name} list",
     ),
 ]
 
@@ -495,6 +569,8 @@ def tool_names() -> List[str]:
 def build_tool_schemas(names: Optional[List[str]] = None, max_risk: str = RISK_OUTWARD) -> List[Dict[str, Any]]:
     """Return Ollama tool definitions, optionally narrowed to a subset."""
     allowed_risk = {RISK_READ}
+    if max_risk in (RISK_PERSONAL, RISK_WRITE, RISK_OUTWARD):
+        allowed_risk.add(RISK_PERSONAL)
     if max_risk in (RISK_WRITE, RISK_OUTWARD):
         allowed_risk.add(RISK_WRITE)
     if max_risk == RISK_OUTWARD:
@@ -554,7 +630,11 @@ def execute_tool(
         return ToolExecution(tool=spec.name, success=False, error="No plugin manager available to run this tool.")
 
     entities = {spec.entity_map[key]: value for key, value in args.items() if key in spec.entity_map}
-    query = spec.query_from.format(**{key: args.get(key, "") for key in args}) if spec.query_from else spec.name
+    # Every parameter is filled, so an optional one left out cannot raise KeyError.
+    fields = {key: str(args.get(key, "")) for key in (spec.parameters or {}).get("properties", {})}
+    query = " ".join(spec.query_from.format(**fields).split()) if spec.query_from else spec.name
+    # "my {list_name} list" reads right whether the model passed "shopping" or "shopping list".
+    query = re.sub(r"\blist(?:\s+list)+\b", "list", query)
     try:
         raw = plugin_manager.execute_for_intent(spec.intent, query, entities, dict(context or {}))
     except Exception as exc:

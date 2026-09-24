@@ -197,7 +197,7 @@ class ReactLoop:
         # disabled the model was still shown write and outward tools, asked for one,
         # and had the whole turn discarded as "approval_required" — the user's
         # request vanished and they got ordinary chat back instead.
-        max_risk = catalog.RISK_WRITE if self.allow_write_tools else catalog.RISK_READ
+        max_risk = catalog.RISK_WRITE if self.allow_write_tools else catalog.RISK_PERSONAL
         tools = catalog.build_tool_schemas(names=tool_names, max_risk=max_risk)
         if not tools:
             return ReactResult(stopped_reason="no_tools_available")
@@ -270,7 +270,9 @@ class ReactLoop:
                     result.stopped_reason = "refused"
                     return result
 
-                if decision.tier == TIER_CONFIRM or (spec.risk != catalog.RISK_READ and not self.allow_write_tools):
+                if decision.tier == TIER_CONFIRM or (
+                    spec.risk not in (catalog.RISK_READ, catalog.RISK_PERSONAL) and not self.allow_write_tools
+                ):
                     result.pending_approval = {
                         "tool": spec.name,
                         "arguments": dict(call.arguments),

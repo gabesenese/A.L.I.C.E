@@ -197,6 +197,27 @@ def _looks_like_small_talk(req: Any) -> bool:
     return not any(word.strip(".!") in _REQUEST_VERBS for word in words)
 
 
+_OFFER_RE = re.compile(
+    r"\b(?:want\s+me\s+to|should\s+i|shall\s+i|(?:would|do)\s+you\s+(?:like|want)\s+me\s+to|"
+    r"i\s+can\s+(?:set|add|remind|save|note|put|make))\b[^?]*\?",
+    re.IGNORECASE,
+)
+
+
+def _answers_an_offer(llm: Any) -> bool:
+    """Whether her last reply offered to do something, so this turn may be the go-ahead.
+
+    "yeah, at 4" is short and has no request verb, which reads as small talk,
+    and small talk gets no tools. Answering "want me to remind you?" it is the
+    request, and without the tool the model could only say it had done it.
+    """
+    history = getattr(llm, "conversation_history", None)
+    if not isinstance(history, list):
+        return False
+    last = next((m for m in reversed(history) if isinstance(m, dict) and m.get("role") == "assistant"), None)
+    return bool(last) and bool(_OFFER_RE.search(str(last.get("content") or "")))
+
+
 # Conversational turns get a tighter budget than workspace ones. Looking something
 # up mid-conversation is one or two lookups; anything longer is the model casting
 # about, and the user is waiting on a reply either way.
@@ -303,7 +324,7 @@ def _run_tool_loop(alice: Any, req: Any, operator_state: Dict[str, Any], context
     llm = getattr(alice, "llm", None)
     if llm is None or not hasattr(llm, "chat_with_tools"):
         return _LoopTurn()
-    if _looks_like_small_talk(req):
+    if _looks_like_small_talk(req) and not _answers_an_offer(llm):
         return _LoopTurn()
 
     from ai.contracts import ResponseOutput

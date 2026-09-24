@@ -126,6 +126,9 @@ def classify(tool_name: str, arguments: Optional[Dict[str, Any]] = None) -> Tier
     if spec.risk == catalog.RISK_READ:
         return TierDecision(TIER_AUTO, "read_only", scope=spec.name)
 
+    if spec.risk == catalog.RISK_PERSONAL:
+        return TierDecision(TIER_AUTO, "personal_organiser", scope=spec.name)
+
     if spec.risk == catalog.RISK_OUTWARD:
         return TierDecision(
             TIER_CONFIRM,
