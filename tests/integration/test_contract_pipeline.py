@@ -1716,3 +1716,32 @@ def test_tool_grounding_allows_rounding_and_twelve_hour_times_but_not_new_number
     source = '{"temperature": 21.6, "start": "2026-09-15T14:00:00"}'
     assert _numbers_grounded("About 22 degrees, and the dentist is at 2pm.", source)
     assert not _numbers_grounded("About 25 degrees.", source)
+
+
+class _HedgingLlm:
+    def __init__(self):
+        self.calls = []
+        self.amended = []
+
+    def chat(self, user_input, use_history=True, **kwargs):
+        self.calls.append({"user_input": user_input, "use_history": use_history, **kwargs})
+        if len(self.calls) == 1:
+            return "I'm not sure, it depends on a lot of things."
+        return "Postgres. The JSON columns cover what you wanted Mongo for."
+
+    def amend_last_reply(self, text):
+        self.amended.append(text)
+
+
+def test_hedge_retry_keeps_the_conversation_and_is_not_recorded_twice():
+    alice = _FakeAlice()
+    alice.llm = _HedgingLlm()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+
+    result = pipeline.run_turn(user_input="so which one would you pick for this?", user_id="u1", turn_number=4)
+
+    retry = alice.llm.calls[-1]
+    assert retry["use_history"] is True
+    assert retry["record_history"] is False
+    assert alice.llm.amended == ["Postgres. The JSON columns cover what you wanted Mongo for."]
+    assert result.response_text.startswith("Postgres.")

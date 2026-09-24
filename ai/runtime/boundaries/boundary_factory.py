@@ -3341,11 +3341,16 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "Do not hedge, deflect, or define terms. "
                         "Do not pad, and do not open with a compliment."
                     )
+                    # The retry keeps the conversation: with history off, "what do you
+                    # make of that?" was answered by a model that had no "that". The
+                    # history already holds the question and the hedge, so the turn
+                    # asks for the take the way a person would, and is not recorded.
                     try:
                         _retry = str(
                             alice.llm.chat(
-                                req.user_input,
-                                use_history=False,
+                                "That didn't answer it. What's your actual take?",
+                                use_history=True,
+                                record_history=False,
                                 context=_retry_ctx,
                                 intent=_turn_intent,
                             )
