@@ -226,6 +226,10 @@ class ReminderStore:
                 self._save(reminders)
             return due
 
+    def last_fired(self) -> Optional[Reminder]:
+        fired = [r for r in self._load() if r.fired]
+        return max(fired, key=lambda r: r.due) if fired else None
+
     def cancel(self, words: str = "") -> List[Reminder]:
         """Cancel the pending reminders whose text shares a word with ``words``;
         with no words, the next one due."""
@@ -265,15 +269,26 @@ def reminder_message(reminder: Reminder, now: Optional[datetime] = None) -> str:
 class ReminderWatcher:
     """Checks for due reminders and hands each one to ``deliver`` exactly once."""
 
-    def __init__(self, store: ReminderStore, deliver: Callable[[str], None], interval: float = 15.0) -> None:
+    def __init__(
+        self,
+        store: ReminderStore,
+        deliver: Callable[[str], None],
+        interval: float = 15.0,
+        ready: Optional[Callable[[], bool]] = None,
+    ) -> None:
         self.store = store
         self.deliver = deliver
         self.interval = float(interval)
+        # Delivery waits while a turn is being answered, so a reminder is never
+        # threaded into the middle of that turn's transcript entry.
+        self.ready = ready
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
     def check(self, now: Optional[datetime] = None) -> List[Reminder]:
         now = now or datetime.now()
+        if self.ready is not None and not self.ready():
+            return []
         due = self.store.take_due(now)
         for reminder in due:
             try:

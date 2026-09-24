@@ -738,7 +738,9 @@ class ALICE:
             from ai.planning.reminders import ReminderStore, ReminderWatcher
 
             self.reminder_watcher = ReminderWatcher(
-                ReminderStore(), lambda message: print(f"\nA.L.I.C.E: {message}", flush=True)
+                ReminderStore(),
+                self._say_unprompted,
+                ready=lambda: not getattr(self, "_turn_in_progress", False),
             )
             if background_services_enabled():
                 self.heartbeat.start()
@@ -6745,6 +6747,23 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         except Exception:
             # Ultimate fallback
             return f"Take care, {name}!"
+
+    def _say_unprompted(self, message: str) -> None:
+        """Speak up between turns: in the terminal, and in the conversation.
+
+        Proactive lines were printed over the prompt and nowhere else, so the
+        prompt disappeared under them, and "thanks, remind me again in ten
+        minutes" went to a model that had never seen the reminder.
+        """
+        text = str(message or "").strip()
+        if not text:
+            return
+        prefs = getattr(getattr(self, "context", None), "user_prefs", None)
+        name = str(getattr(prefs, "name", "") or "You")
+        print(f"\nA.L.I.C.E: {text}\n\n{name}: ", end="", flush=True)
+        history = getattr(getattr(self, "llm", None), "conversation_history", None)
+        if isinstance(history, list):
+            history.append({"role": "assistant", "content": text})
 
     def _learn_intent_correction(self, user_input: str, intent: str) -> bool:
         """Route this phrasing to the corrected intent from now on, and keep it.

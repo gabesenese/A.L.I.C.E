@@ -44,6 +44,11 @@ class ReminderPlugin(PluginInterface):
         if parsed is None:
             return {"success": False, "response": "I couldn't tell what to remind you about."}
         task, due = parsed
+        if task.lower() in {"again", "me again", "it again", "that again", "about it again", "it", "that", "about it"}:
+            last = self.store.last_fired()
+            if last is None:
+                return {"success": True, "response": "Remind you of what?", "data": {"needs_task": True}}
+            task = last.text
         about = "about" if re.search(r"\b(?:remind\s+me|reminder)\s+about\b", str(query or ""), re.I) else "to"
         if due is None:
             # Asked rather than guessed: a reminder at the wrong time is worse than none.

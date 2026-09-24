@@ -90,3 +90,61 @@ def test_the_plugin_is_what_handles_reminder_intents(tmp_path):
     assert plugin.can_handle("reminder:set", {})
     assert plugin.can_handle("reminder:list", {})
     assert not plugin.can_handle("notes:create", {})
+
+
+def test_nothing_is_delivered_in_the_middle_of_a_turn(tmp_path):
+    store = ReminderStore(tmp_path / "r.json")
+    store.add("call mom", NOW)
+    said = []
+    busy = {"turn": True}
+    watcher = ReminderWatcher(store, said.append, ready=lambda: not busy["turn"])
+
+    watcher.check(NOW + timedelta(seconds=5))
+    assert said == []
+
+    busy["turn"] = False
+    watcher.check(NOW + timedelta(seconds=20))
+    assert said == ["Reminder: call mom."]
+
+
+def test_remind_me_again_rearms_the_one_that_just_fired(tmp_path):
+    plugin = ReminderPlugin(ReminderStore(tmp_path / "r.json"))
+    plugin.store.add("check the oven", NOW)
+    ReminderWatcher(plugin.store, lambda _message: None).check(NOW)
+
+    out = plugin.execute("reminder:set", "remind me again in 10 minutes", {}, {})
+
+    assert out["response"].startswith("Okay, I'll remind you to check the oven at ")
+    assert [r.text for r in plugin.store.pending()] == ["check the oven"]
+
+
+def test_a_reminder_is_said_in_the_chat_and_kept_in_the_conversation(capsys):
+    from types import SimpleNamespace
+
+    from app.main import ALICE
+
+    alice = ALICE.__new__(ALICE)
+    alice.context = SimpleNamespace(user_prefs=SimpleNamespace(name="Gabriel"))
+    alice.llm = SimpleNamespace(conversation_history=[])
+
+    alice._say_unprompted("Reminder: check the oven.")
+
+    assert capsys.readouterr().out == "\nA.L.I.C.E: Reminder: check the oven.\n\nGabriel: "
+    assert alice.llm.conversation_history == [{"role": "assistant", "content": "Reminder: check the oven."}]
+
+
+def test_a_turn_is_marked_in_progress_while_it_runs():
+    from ai.runtime import turn_orchestrator
+    from types import SimpleNamespace
+
+    seen = []
+    alice = SimpleNamespace()
+    original = turn_orchestrator._run_default_turn
+    turn_orchestrator._run_default_turn = lambda a, text, voice=False: seen.append(a._turn_in_progress) or "ok"
+    try:
+        assert turn_orchestrator.run_default_turn(alice, "hi") == "ok"
+    finally:
+        turn_orchestrator._run_default_turn = original
+
+    assert seen == [True]
+    assert alice._turn_in_progress is False

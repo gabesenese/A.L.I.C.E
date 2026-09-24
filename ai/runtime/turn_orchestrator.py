@@ -522,6 +522,21 @@ def _learn_from_restatement(alice: Any, user_input: str, meta: Dict[str, Any], p
 
 
 def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> str:
+    """One turn, marked in progress so nothing unprompted is said in the middle of it."""
+    try:
+        alice._turn_in_progress = True
+    except Exception:
+        pass
+    try:
+        return _run_default_turn(alice, user_input, use_voice)
+    finally:
+        try:
+            alice._turn_in_progress = False
+        except Exception:
+            pass
+
+
+def _run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> str:
     """Default app turn entrypoint.
 
     The active path is the contract pipeline. Legacy inline orchestration is only
