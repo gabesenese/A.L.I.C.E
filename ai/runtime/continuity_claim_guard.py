@@ -107,6 +107,13 @@ _PROPER_NOUN_STOPWORDS = {
 
 _PROPER_NOUN_RE = re.compile(r"(?<![.!?]\s)(?<!^)\b([A-Z][a-z]{2,})\b")
 _SECOND_PERSON_RE = re.compile(r"\byou\b|\byour\b|\byou'?re\b", re.IGNORECASE)
+# Advice and hypotheticals put a name in front of the user without claiming
+# anything about them. "You could use Postgres here" suggests; "are you heading
+# to Oakville?" presumes. Only the second is an invented memory.
+_ADVICE_RE = re.compile(
+    r"\bif you\b|\byou(?:'d| could| should| can| might| may| would| will| need to| want to| could try)\b",
+    re.IGNORECASE,
+)
 
 
 def _proper_nouns(sentence: str) -> List[str]:
@@ -459,7 +466,7 @@ def assess_continuity_claims(
         # A name the user never used, in a sentence addressed to them, is invented.
         # "are you heading out for that drive to Oakville?" reads as recall and was
         # produced for a user who had never mentioned Oakville or a drive.
-        if _SECOND_PERSON_RE.search(sentence):
+        if _SECOND_PERSON_RE.search(sentence) and not _ADVICE_RE.search(sentence):
             invented = [name for name in _proper_nouns(sentence) if name not in grounded_tokens]
             if invented:
                 claim = sentence.strip()

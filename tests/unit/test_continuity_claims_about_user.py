@@ -223,3 +223,18 @@ def test_what_the_user_said_earlier_in_the_conversation_is_evidence():
     evidence = _turn_evidence_text(req, alice)
     assert "tokenizer" in evidence
     assert "backtracking" not in evidence
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "You could use Postgres here.",
+        "If you need full-text search, SQLite has FTS5.",
+        "You might try Redis for the cache.",
+        "You'd want Docker for that.",
+    ],
+)
+def test_advice_naming_a_tool_is_not_an_invented_memory(text):
+    result = assess(text)
+
+    assert result.text == text
