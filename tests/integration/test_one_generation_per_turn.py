@@ -160,3 +160,14 @@ def test_an_ordinary_answer_is_still_capped(model):
     result = _ask(model.engine, QUESTION)
 
     assert result.response_text.count("Step") == 5
+
+
+def test_a_turn_that_reaches_the_loop_further_down_is_generated_once(model, monkeypatch):
+    """With conversational reach off, the loop still runs at its older call site,
+    and that site threw the direct answer away and generated the reply again."""
+    monkeypatch.setenv("ALICE_ENABLE_CONVERSATIONAL_TOOL_USE", "0")
+
+    result = _ask(model.engine)
+
+    assert len(model.sent) == 1
+    assert result.response_text == REPLY

@@ -3439,9 +3439,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         # A turn that could reach for tools has already been through the loop.
         # Running it again here was a second full generation on every question.
         if not _may_reach_for_tools(req):
-            grounded = _try_tool_grounded_answer(alice, req, operator_state, turn_context)
-            if grounded is not None:
-                return grounded
+            loop_turn = _tool_loop_turn(alice, req, operator_state, turn_context)
+            if loop_turn.output is not None:
+                return loop_turn.output
+            loop_reply = loop_turn.reply
 
         llm_text = ""
         if getattr(alice, "llm", None):
