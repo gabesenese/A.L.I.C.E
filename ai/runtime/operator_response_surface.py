@@ -672,7 +672,7 @@ def render_operator_response(
     cleaned = sanitize_operator_chatter(
         _suppress_passive_operator_chatter(strip_meta_response_artifacts(base_stripped))
     )
-    if cleaned and len(cleaned) > 8:
+    if cleaned.strip():
         return cleaned.strip()
 
     analysis = dict(local.get("analysis") or {})

@@ -10,6 +10,7 @@ from ai.runtime.operator_response_surface import (
     strip_meta_response_artifacts,
 )
 from ai.runtime.verified_growth import verify_operator_surface_contract
+from ai.infrastructure.runtime_flags import scripted_overrides_enabled
 
 
 def _has_local_evidence_for_inspection(local: Dict[str, Any]) -> bool:
@@ -260,7 +261,8 @@ def apply_response_momentum(
             if status_text:
                 rendered = f"{status_text}\n\n{rendered}".strip() if rendered else status_text
         if not str(rendered or "").strip():
-            return "I ran into an issue with that operator action. Let me try again."
+            # Nothing to say, and nothing retries: say so without promising to.
+            return "That didn't give me anything to report."
         # Error responses (Blocker + Next best move) are pre-formatted — bypass contract.
         is_error_response = local.get("success") is False or bool(str(local.get("error") or "").strip())
         if is_error_response:
@@ -272,7 +274,10 @@ def apply_response_momentum(
             local_execution=local,
             next_step=str(next_step or ""),
         )
-        if not contract.passed:
+        if not contract.passed and scripted_overrides_enabled():
+            # The contract is a shape test (a "let me know", a label, under 8
+            # characters). Replacing a real answer over it with a promise to
+            # retry, when nothing retries, was the worse reply.
             return "I ran into an issue with that operator action. Let me try again."
         # Contract passed — assemble final output.
         base_ct = normalize_response_paragraphs(_enforce_claim_evidence(rendered, local))
