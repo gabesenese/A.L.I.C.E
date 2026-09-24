@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any, Dict
 
+_QUESTION_START = re.compile(
+    r"(how|why|what|when|where|which|who|can you|could you|should i|is it|are there|do i|does)\b"
+)
+
 
 def should_answer_instead_of_clarify(
     user_input: str,
@@ -22,11 +26,12 @@ def should_answer_instead_of_clarify(
     if re.search(r"\bread a file\b", low) and not re.search(r"\b[a-z0-9_./\\-]+\.[a-z0-9]{1,8}\b", low):
         return False
 
+    # This decides answer-or-ask, not run-or-refuse; the trust tiers guard execution.
+    # "Delete the logs" is an instruction worth confirming; "how do I delete a git
+    # branch?" and "which file should I start with?" are questions to answer.
+    is_question = low.endswith("?") or bool(_QUESTION_START.match(low))
     risky = ("delete", "drop database", "format disk", "wipe", "bypass security")
-    if any(token in low for token in risky):
-        return False
-
-    if "which " in low or "which one" in low:
+    if not is_question and any(token in low for token in risky):
         return False
 
     if low in {"this is unclear", "unclear"} or re.fullmatch(
