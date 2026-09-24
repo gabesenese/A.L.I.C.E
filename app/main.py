@@ -1,4 +1,3 @@
-import importlib
 import threading
 import os
 import sys
@@ -154,7 +153,6 @@ from ai.infrastructure.database_pool import (
     DatabaseConfig,
     DatabaseType,
 )
-from ai.infrastructure.runtime_flags import is_enabled
 from ai.runtime.alice_contract_factory import build_runtime_boundaries
 from ai.runtime.contract_pipeline import ContractPipeline
 from ai.runtime.fallback_policy import resolve_turn_success_and_route
@@ -694,117 +692,6 @@ class ALICE:
                 logger.error(f"[ERROR] Foundation systems initialization failed: {e}")
                 self.foundations = None
                 self.structured_logger.error(f"Foundation systems failed: {e}", component="foundations")
-
-            # 4.0.5. ===== TIER IMPROVEMENTS INITIALIZATION =====
-            # Each of these is quarantined by default (see ai/infrastructure/runtime_flags)
-            # and is built only when its flag is set. The log used to announce
-            # "All 10 tier improvements initialized successfully, active_systems=10"
-            # unconditionally, so the ordinary startup — where every flag is off and
-            # nothing is constructed — still reported ten active subsystems.
-            if self.runtime_mode_config.enable_advanced_tiers:
-                logger.info("Initializing tier improvements (quarantine-aware)...")
-                tier_specs = [
-                    (
-                        "session_summarizer",
-                        "session_summarizer",
-                        "ai.memory.session_summarizer",
-                        "SessionSummarizer",
-                        {"summarize_every_n_turns": 5},
-                    ),
-                    (
-                        "capability_constraints",
-                        "capability_constraints",
-                        "ai.infrastructure.capability_constraints",
-                        "CapabilityConstraintsLedger",
-                        {},
-                    ),
-                    (
-                        "result_quality_scorer",
-                        "result_quality_scorer",
-                        "ai.core.result_quality_scorer",
-                        "ResultQualityScorer",
-                        {},
-                    ),
-                    (
-                        "goal_alignment_tracker",
-                        "goal_alignment_tracker",
-                        "ai.learning.goal_alignment_tracker",
-                        "GoalAlignmentTracker",
-                        {},
-                    ),
-                    (
-                        "tone_trajectory_engine",
-                        "tone_trajectory_engine",
-                        "ai.learning.tone_trajectory_engine",
-                        "ToneTrajectoryEngine",
-                        {},
-                    ),
-                    (
-                        "pattern_based_nudger",
-                        "pattern_nudger",
-                        "ai.proactivity.pattern_based_nudger",
-                        "PatternBasedNudger",
-                        {},
-                    ),
-                    (
-                        "system_state_api",
-                        "system_state_api",
-                        "ai.introspection.system_state_api",
-                        "SystemStateAPI",
-                        {},
-                    ),
-                    (
-                        "weak_spot_detector",
-                        "weak_spot_detector",
-                        "ai.learning.weak_spot_detector",
-                        "WeakSpotDetector",
-                        {},
-                    ),
-                    (
-                        "multi_goal_arbitrator",
-                        "multi_goal_arbitrator",
-                        "ai.goals.multi_goal_arbitrator",
-                        "MultiGoalArbitrator",
-                        {},
-                    ),
-                    (
-                        "routing_decision_logger",
-                        "routing_decision_logger",
-                        "ai.reasoning.routing_decision_logger",
-                        "RoutingDecisionLogger",
-                        {},
-                    ),
-                ]
-                active_tiers: List[str] = []
-                for flag, attribute, module_path, class_name, tier_kwargs in tier_specs:
-                    if not is_enabled(flag):
-                        continue
-                    try:
-                        module = importlib.import_module(module_path)
-                        setattr(self, attribute, getattr(module, class_name)(**tier_kwargs))
-                        active_tiers.append(flag)
-                    except Exception as e:
-                        # One tier failing is no reason to lose the rest, and it must
-                        # not be counted among the active ones.
-                        logger.error(f"[ERROR] Tier improvement {flag} failed to initialize: {e}")
-                        self.structured_logger.error(
-                            f"Tier improvement {flag} failed: {e}", component="tier_improvements"
-                        )
-                self.structured_logger.info(
-                    "Tier improvements initialized",
-                    component="tier_improvements",
-                    active_systems=len(active_tiers),
-                    active=list(active_tiers),
-                    available=len(tier_specs),
-                )
-                if active_tiers:
-                    logger.info(
-                        f"[OK] {len(active_tiers)}/{len(tier_specs)} tier improvements active: "
-                        f"{', '.join(active_tiers)}"
-                    )
-                else:
-                    logger.info(f"[OK] No tier improvements active ({len(tier_specs)} available, all quarantined)")
-            # ===== END 10 TIER IMPROVEMENTS =====
 
             # Inject LLM engine into autonomous agent now that it's loaded
             if getattr(self, "autonomous_agent", None):
