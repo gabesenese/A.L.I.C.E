@@ -133,7 +133,7 @@ class MemoryExtractor:
         r"|rent|landlord|neighbou?r|flat|apartment|house"
     )
     _personal_fact_pattern = re.compile(
-        r"^(?:(?:and|also|oh|btw|by the way)[,\s]+)?(?:"
+        r"^(?:(?:and|also|oh|btw|by the way|actually|well|no|nope|sorry)[,.!\s]+)?(?:"
         r"my\s+(?:[\w'-]+\s+){0,2}(?:" + _PERSONAL_NOUNS + r")\s+(?:is|are|was|were|'s)\b"
         r"|i\s+(?:have|own|got)\s+(?:a|an|two|three|\d+)\s+(?:[\w'-]+\s+)?(?:" + _PERSONAL_NOUNS + r")\b"
         r"|i\s+(?:work|live)\s+(?:as|at|in|for|on|near)\s+\S"

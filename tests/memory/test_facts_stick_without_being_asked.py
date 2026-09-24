@@ -46,3 +46,13 @@ def test_a_fact_about_himself_is_kept(text):
 )
 def test_passing_remarks_and_questions_are_not(text):
     assert [c for c in _stored(text) if c.kind == "personal_fact"] == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["actually, my birthday is march 4th", "no, my birthday is march 4th", "sorry, my birthday is march 4th"],
+)
+def test_correcting_a_fact_in_passing_is_kept_too(text):
+    """This is how people correct a fact in conversation, and the newer fact then
+    replaces the older one (see test_newer_facts_replace_older_ones)."""
+    assert [(c.kind, c.scope) for c in _stored(text)] == [("personal_fact", "long_term")]
