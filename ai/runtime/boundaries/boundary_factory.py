@@ -122,13 +122,28 @@ _REQUEST_VERBS = (
 )
 
 
-def _turn_evidence_text(req: Any) -> str:
+# The recent transcript that counts as evidence of what the user has said: the
+# last twenty exchanges.
+_SESSION_EVIDENCE_MESSAGES = 40
+
+
+def _turn_evidence_text(req: Any, alice: Any = None) -> str:
     """Everything Alice legitimately knows this turn: what was said, and what tools returned.
 
     A name she uses must come from somewhere. Without this, a city returned by the
     weather tool would look as invented as a city she made up.
+
+    What the user said earlier in this conversation counts too. Without it, "you
+    mentioned the tokenizer" two turns after they did read as an invention.
     """
     parts = [str(getattr(req, "user_input", "") or "")]
+    history = getattr(getattr(alice, "llm", None), "conversation_history", None)
+    if isinstance(history, list):
+        parts.extend(
+            str(message.get("content") or "")
+            for message in history[-_SESSION_EVIDENCE_MESSAGES:]
+            if isinstance(message, dict) and message.get("role") == "user"
+        )
     tool_result = getattr(req, "tool_result", None)
     if tool_result is not None:
         parts.append(str(getattr(tool_result, "response", "") or ""))
@@ -3303,7 +3318,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 text=llm_text,
                 memory_items=list(req.memory.items or []),
                 operator_state=operator_state,
-                evidence_text=_turn_evidence_text(req),
+                evidence_text=_turn_evidence_text(req, alice),
             )
             llm_text = _strip_shaming(str(continuity.text or "").strip())
             low_input = str(req.user_input or "").lower()
@@ -3470,7 +3485,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 text=response_text,
                 memory_items=list(req.memory.items or []),
                 operator_state=operator_state,
-                evidence_text=_turn_evidence_text(req),
+                evidence_text=_turn_evidence_text(req, alice),
             )
             if continuity.unsupported_continuity_claim:
                 return VerifierResult(

@@ -8,6 +8,7 @@ import os
 import re
 from typing import Any, Dict, Optional
 
+from ai.runtime.continuity_claim_guard import UNSUPPORTED_CLAIM_REPLY
 from ai.runtime.response_authority import is_authoritative, sanitize_internal_process_output
 from ai.contracts import (
     MemoryRequest,
@@ -66,7 +67,7 @@ def _verification_fallback(
         return "I wasn't able to generate a response for that. Could you be more specific about what you need?"
 
     if reason == "unsupported_continuity_claim":
-        return "I don't have enough context to answer that confidently. Could you give me a bit more detail?"
+        return UNSUPPORTED_CLAIM_REPLY
 
     if reason == "unverified_codebase_claim":
         return "I don't have the file details memorized. Use 'inspect <filename>' to get accurate info about a specific file."

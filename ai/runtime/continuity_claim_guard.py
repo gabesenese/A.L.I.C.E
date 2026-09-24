@@ -31,6 +31,8 @@ _PROPER_NOUN_STOPWORDS = {
     "i",
     "i'm",
     "i've",
+    "i'd",
+    "i'll",
     "alice",
     "gabriel",
     "ok",
@@ -134,9 +136,7 @@ _CLAIM_PATTERNS = (
     r"\bi remember you were\b",
     r"\bour previous conversation was about\b",
     r"\bconversation history suggests\b",
-    # Schedule/pattern assumptions — imply knowledge of the user's routine
     r"\bwhen we last spoke\b",
-    r"\bthan usual\b",
     r"\bas usual\b",
     r"\bstill on your mind\b",
     # Assertions about what the user is currently doing or feeling. These read as
@@ -156,11 +156,29 @@ _CLAIM_PATTERNS = (
     r"\bi notice\b",
     r"\bi'?ve seen you\b",
     r"\bi see you'?(?:re|ve)\b",
-    r"\blately\b",
-    r"\bthese days\b",
     r"\bevery time you\b",
 )
 _CLAIM_RE = re.compile("|".join(_CLAIM_PATTERNS), re.IGNORECASE)
+
+# Words about habit and time claim knowledge of the user's routine only when the
+# sentence is about the user. "You're up later than usual" asserts a routine nobody
+# told her; "that build is taking longer than usual" is about the build, and deleting
+# it cut the observation that the advice after it depended on. "As usual" stays a
+# claim on its own: it asserts a shared routine whoever the subject is.
+_HABIT_RE = re.compile(r"\bthan usual\b|\blately\b|\bthese days\b", re.IGNORECASE)
+
+# Claims about an earlier occasion. Only stored memory can back these: something
+# the user said a minute ago is no evidence of what was said last week.
+_PRIOR_OCCASION_RE = re.compile(
+    r"\blast time\b|\blast session\b|\bwhen we last spoke\b|\bwe left off\b|\bour previous conversation\b"
+    r"|\bconversation history suggests\b|\byesterday\b|\blast week\b|\bthe other day\b",
+    re.IGNORECASE,
+)
+
+# What she says when every sentence of a reply was an unsupported claim. The
+# verifier gives the same line for the same failure (turn_orchestrator).
+UNSUPPORTED_CLAIM_REPLY = "I don't have enough context to answer that confidently. Could you give me a bit more detail?"
+
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _WORD_RE = re.compile(r"[a-z0-9']+")
 _STOPWORDS = {
@@ -202,6 +220,28 @@ _STOPWORDS = {
     "today",
     "day",
 }
+
+# Words too common to show that a claim is about something the user said. A
+# transcript is full of them, so sharing one with a claim proves nothing.
+_COMMON_WORDS = frozenset(
+    (
+        "about after again also been before being could does doing done even every first from going good "
+        "have help here into just know like look make many might more most much need never next only other "
+        "over really right same should since some something start still such sure take than that them then "
+        "there these they thing things think this those time today very want well were what when where "
+        "which while will with work would yeah your"
+    ).split()
+)
+
+
+def _content_tokens(tokens: set[str]) -> set[str]:
+    """The words in a token set that could name a topic."""
+    content = set()
+    for token in tokens:
+        token = token[:-2] if token.endswith("'s") else token
+        if len(token) >= 4 and "'" not in token and token not in _COMMON_WORDS:
+            content.add(token)
+    return content
 
 
 @dataclass(frozen=True)
@@ -260,7 +300,7 @@ def _tokens(text: str) -> set[str]:
 
 
 def _claim_topic_tokens(claim: str) -> set[str]:
-    cleaned = _CLAIM_RE.sub(" ", str(claim or "").lower())
+    cleaned = _HABIT_RE.sub(" ", _CLAIM_RE.sub(" ", str(claim or "").lower()))
     return _tokens(cleaned)
 
 
@@ -396,9 +436,10 @@ def assess_continuity_claims(
     if operator_active:
         evidence_sources.append("operator_state")
 
-    # Names Alice is allowed to use: anything the user just said, anything a tool
-    # returned this turn, plus stored memory and operator state.
-    grounded_tokens = set(_tokens(str(evidence_text or "")))
+    # Names Alice is allowed to use: anything the user said in this conversation,
+    # anything a tool returned this turn, plus stored memory and operator state.
+    said_tokens = _tokens(str(evidence_text or ""))
+    grounded_tokens = set(said_tokens)
     grounded_tokens |= state_tokens
     for item in all_items:
         grounded_tokens |= _tokens(str(item.get("content") or ""))
@@ -429,12 +470,21 @@ def assess_continuity_claims(
                 rejection_reasons[claim] = ["ungrounded_proper_noun"]
                 continue
 
-        if _CLAIM_RE.search(sentence):
+        if _CLAIM_RE.search(sentence) or (_HABIT_RE.search(sentence) and _SECOND_PERSON_RE.search(sentence)):
             claim = sentence.strip()
             detected.append(claim)
             claim_tokens = _claim_topic_tokens(claim)
             claim_topic_tokens_map[claim] = sorted(claim_tokens)
             reasons: List[str] = []
+
+            # "You mentioned the tokenizer" right after the user did is a callback,
+            # not an invention. The conversation itself is evidence, and it was not
+            # consulted: turn memories carry no session source, so every in-session
+            # callback was deleted.
+            if not _PRIOR_OCCASION_RE.search(sentence) and _has_topic_overlap(
+                _content_tokens(claim_tokens), _content_tokens(said_tokens)
+            ):
+                reasons.append("said_in_this_conversation")
 
             if recent_items:
                 for item in recent_items:
@@ -481,7 +531,9 @@ def assess_continuity_claims(
     cleaned = " ".join(part.strip() for part in kept if part.strip()).strip()
     recovery_applied = bool(unsupported)
     if recovery_applied and not cleaned:
-        cleaned = "I am here. No active task is loaded yet, and we can continue an existing project or start fresh."
+        # This used to be "I am here. No active task is loaded yet...", a boot
+        # banner in the middle of a conversation, in place of an answer.
+        cleaned = UNSUPPORTED_CLAIM_REPLY
 
     return ContinuityGuardResult(
         text=cleaned,
