@@ -208,8 +208,10 @@ class CompanionPolicyEngine:
     # What a reminder or a note says is not something being done: "remind me to
     # post the letter" sets a reminder, and "add kill the weeds to my todo list"
     # adds a line. Both were stopped for approval over those words, and notes ask
-    # before removing a note themselves.
-    _content_families = ("reminder", "notes")
+    # before removing a note themselves. "forget my favorite color" is his own
+    # explicit instruction about his own memory, matched by the words he used,
+    # and asking "Should I go ahead?" back made forgetting a two-step chore.
+    _content_families = ("reminder", "notes", "memory")
 
     def requires_approval(self, *, user_input: str, intent: str) -> Tuple[bool, str]:
         if str(intent or "").split(":", 1)[0].strip().lower() in self._content_families:
@@ -535,6 +537,13 @@ class CompanionRuntimeLoop:
         target = str(meta.get("target_file") or "").strip() or (resolved[:80] if resolved else "")
 
         if "delete" in intent_lower or "remove" in intent_lower:
+            # "permanently delete forget my notes" read the whole request as the target.
+            target = re.sub(
+                r"^(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:delete|remove|forget|erase|wipe|clear|drop)\s+",
+                "",
+                target,
+                flags=re.IGNORECASE,
+            )
             return f"permanently delete {target or 'it'}"
         if "send" in intent_lower or "email" in intent_lower:
             return f"send {target or 'the message'}"

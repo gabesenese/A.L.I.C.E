@@ -19,6 +19,7 @@ import logging
 import re
 from typing import Dict, List, Optional, Any
 
+from ai.memory.forgetting import as_his, forget_topic, is_about
 from ai.memory.personal_memory import PersonalMemoryStore
 from ai.memory.temporal_scope import Period, items_within, requested_period
 
@@ -422,25 +423,34 @@ class MemoryPlugin(PluginInterface):
         implemented". On a request to forget something, a false confirmation is
         the one outcome with no recovery: he believes it is gone and stops asking.
         """
-        topic = entities.get("topic") or entities.get("about")
+        # The router passes no entities, so "forget my favorite color" always
+        # failed here with "No topic specified". The request names it.
+        topic = entities.get("topic") or entities.get("about") or forget_topic(entities.get("_question", ""))
 
         if not topic:
-            return {"success": False, "message": "No topic specified for deletion"}
+            return {"success": False, "message": "What should I forget?"}
 
         if not self._recall_is_available():
             return {"success": False, "message": self._UNREACHABLE, "deleted_count": 0, "recall_available": False}
 
+        spoken = as_his(topic)
         try:
-            matches = self._find(topic)
+            # By the words he used, never by similarity alone: deletion cannot be
+            # undone, and "favorite color" is semantically close to "favorite food".
+            candidates = {str(m.get("id")): m for m in self._find_any(topic, limit=20) if m.get("id")}
+            for m in self.memory.get_all_memories(limit=1000):
+                if m.get("id"):
+                    candidates.setdefault(str(m.get("id")), m)
+            matches = [m for m in candidates.values() if is_about(str(m.get("content") or ""), topic)]
             if not matches:
                 return {
                     "success": True,
-                    "message": f"Nothing stored about {topic}.",
+                    "message": f"I don't have anything saved about {spoken}.",
                     "deleted_count": 0,
                     "recall_available": True,
                 }
 
-            deleted = [m for m in matches if m.get("id") and self.memory._remove_memory_by_id(m["id"])]
+            deleted = [m for m in matches if self.memory._remove_memory_by_id(m["id"])]
         except Exception as e:
             logger.error(f"Error deleting memory: {e}")
             return {"success": False, "message": f"Failed to delete memory: {e}", "recall_available": True}
@@ -448,14 +458,13 @@ class MemoryPlugin(PluginInterface):
         if not deleted:
             return {
                 "success": False,
-                "message": f"Found {len(matches)} entries about {topic} but could not remove them.",
+                "message": f"I found what I have about {spoken} but couldn't delete it.",
                 "deleted_count": 0,
                 "recall_available": True,
             }
-        noun = "entry" if len(deleted) == 1 else "entries"
         return {
             "success": True,
-            "message": f"Deleted {len(deleted)} {noun} about {topic}.",
+            "message": f"Forgotten. I've deleted what you told me about {spoken}.",
             "deleted_count": len(deleted),
             "recall_available": True,
         }

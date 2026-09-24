@@ -102,6 +102,15 @@ class MemoryExtractor:
         r"let[' ]?s get back to alice|work on (?:alice|our ai project|the codebase|the repo))\b",
         re.IGNORECASE,
     )
+    # A question typed without its "?". "when I was a kid ..." and "what I want
+    # is ..." start the same way and are statements, so the word after matters.
+    _question_start = re.compile(
+        r"(?:(?:what|who|whom|whose|where|when|why|how|which)(?:'s|\s+(?:is|are|was|were|do|does|did|can|could|"
+        r"would|should|will|have|has|am|you)\b)|how\s+(?:much|many|long|often|far|old)\b"
+        r"|(?:do|does|did|is|are|was|were|can|could|would|should|will|have|has|am)\s+"
+        r"(?:you|i|we|it|he|she|they|there|my|your|the|this|that)\b)",
+        re.IGNORECASE,
+    )
     _memory_recall_query_pattern = re.compile(
         r"\b(what did i talk about|what did i mention|what do you remember|"
         r"what did i talk about my (?:life|personal life)|what did i talk about my life today)\b",
@@ -253,11 +262,17 @@ class MemoryExtractor:
             ]
 
         fragments = self._split_fragments(text)
+        # A question says nothing about him. Splitting drops the "?", which is how
+        # "what do you know about me?" came to be stored as a personal event and
+        # then listed back as something he had said about himself.
+        asked = {" ".join(q.split()).lower() for q in re.findall(r"[^?.!;]+(?=\?)", text)}
         has_mixed_alice_and_personal = bool(
             self._alice_project_pattern.search(text) and self._personal_priority_pattern.search(text)
         )
         candidates: List[MemoryCandidate] = []
         for fragment in fragments:
+            if " ".join(fragment.split()).lower() in asked or self._question_start.match(fragment.strip()):
+                continue
             fragment_domains = self._pick_domains(fragment)
             if self._alice_project_work_pattern.search(fragment):
                 if "alice_project" not in fragment_domains:

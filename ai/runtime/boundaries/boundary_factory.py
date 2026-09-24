@@ -123,6 +123,18 @@ _REQUEST_VERBS = (
     "install",
     "build",
     "test",
+    # His own reminders, lists, notes and memory. Short and without a question
+    # mark, "remind me about that in an hour" read as small talk and got no tools.
+    "remind",
+    "set",
+    "save",
+    "note",
+    "put",
+    "schedule",
+    "cancel",
+    "clear",
+    "forget",
+    "remember",
 )
 
 
@@ -666,6 +678,33 @@ def _first_sentence(text: str, limit: int) -> str:
     if len(sentence) <= limit:
         return sentence
     return sentence[:limit].rsplit(" ", 1)[0] + "…"
+
+
+# "User said: " or "Gabriel said: " on a stored turn; "My boss said: ..." is content.
+_SAID_BY = re.compile(r"^\s*[A-Z][\w'-]{0,30}\s+said:\s*")
+_TO_SECOND_PERSON = (
+    (re.compile(r"\bI'm\b", re.IGNORECASE), "you're"),
+    (re.compile(r"\bI\s+am\b", re.IGNORECASE), "you are"),
+    (re.compile(r"\bI've\b", re.IGNORECASE), "you've"),
+    (re.compile(r"\bI'll\b", re.IGNORECASE), "you'll"),
+    (re.compile(r"\bI'd\b", re.IGNORECASE), "you'd"),
+    (re.compile(r"\bI\s+was\b", re.IGNORECASE), "you were"),
+    (re.compile(r"\bmyself\b", re.IGNORECASE), "yourself"),
+    (re.compile(r"\bmine\b", re.IGNORECASE), "yours"),
+    (re.compile(r"\bmy\b", re.IGNORECASE), "your"),
+    (re.compile(r"\bme\b", re.IGNORECASE), "you"),
+    (re.compile(r"\bI\b", re.IGNORECASE), "you"),
+)
+
+
+def _as_told(content: str) -> str:
+    """A stored fact said back to him: "User said: my sister's name is Ana" is
+    "Your sister's name is Ana", not the storage format."""
+    text = _SAID_BY.sub("", str(content or "").split("\nAlice replied:")[0].strip(), count=1)
+    for pattern, replacement in _TO_SECOND_PERSON:
+        text = pattern.sub(replacement, text)
+    text = text.strip()
+    return text[:1].upper() + text[1:]
 
 
 def _memory_line(content: str) -> str:
@@ -1600,6 +1639,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         user_input: str,
         intent: str,
         items: List[Dict[str, Any]],
+        say_back: bool = True,
     ) -> str:
         def _norm(text: str) -> str:
             value = str(text or "").strip().lower()
@@ -1636,10 +1676,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             if not key or key in seen:
                 continue
             seen.add(key)
-            snippets.append(content)
+            snippets.append(_as_told(content) if say_back else content)
         if not snippets:
             return _personal_memory_fallback_response(user_input, intent)
-        heading = f"From {period.describe()}:" if period is not None else "Here is what I have saved in memory:"
+        heading = f"From {period.describe()}:" if period is not None else "Here's what I know about you:"
         summary = heading + "\n- " + "\n- ".join(snippets)
         return _surface_text(
             summary,
@@ -3479,8 +3519,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     },
                 )
             grounded_text = _render_personal_memory_summary(req.user_input, req.decision.intent, memory_items)
+            # Checked in the words they were stored in: said back to him as "Your
+            # sister's name is Ana", the lines no longer match the evidence word for
+            # word, and every answer was rejected as unsupported.
             verification = memory_answer_verifier.verify_answer(
-                answer_text=grounded_text,
+                answer_text=_render_personal_memory_summary(
+                    req.user_input, req.decision.intent, memory_items, say_back=False
+                ),
                 evidence_items=memory_items,
             )
             if not bool(verification.get("accepted")):

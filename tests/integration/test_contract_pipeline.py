@@ -1014,7 +1014,7 @@ def test_personal_memory_query_with_structured_evidence_returns_grounded_summary
 
     assert result.handled is True
     assert result.metadata["response_type"] == "personal_memory_grounded"
-    assert "here is what i have saved in memory" in result.response_text.lower()
+    assert "here's what i know about you" in result.response_text.lower()
     assert "sister visited last weekend" in result.response_text.lower()
     recall = result.metadata.get("memory_recall") or {}
     assert recall.get("memory_recall_mode") is True

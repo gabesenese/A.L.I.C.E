@@ -43,5 +43,5 @@ def test_recall_is_phrased_by_the_model_from_the_saved_rows():
 def test_recall_keeps_the_saved_rows_when_the_model_adds_to_them():
     _, result = _ask("Your sister flew in from Lisbon with her two kids and a dog.")
 
-    assert "here is what i have saved in memory" in result.response_text.lower()
+    assert "here's what i know about you" in result.response_text.lower()
     assert "sister visited last weekend" in result.response_text.lower()

@@ -57,7 +57,9 @@ class MemoryAnswerVerifier:
         unsupported_claims: List[str] = []
         lines = [ln.strip("- ").strip() for ln in str(answer_text or "").splitlines() if ln.strip()]
         for ln in lines:
-            if ln.lower().startswith("here is what i have saved in memory"):
+            # A heading ("Here's what I know about you:", "From March 3rd:") claims
+            # nothing; only the lines under it do.
+            if ln.lower().startswith("here is what i have saved in memory") or ln.endswith(":"):
                 continue
             claim_tokens = _tokens(ln)
             if not claim_tokens:

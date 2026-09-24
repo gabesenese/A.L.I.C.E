@@ -46,7 +46,7 @@ class Reminder:
 _COMMAND_RE = re.compile(
     r"^\s*(?:(?:hey|ok|okay)\s+alice[,!]?\s*)?(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?"
     r"(?:remind\s+me(?:\s+(?:to|about|that))?|set\s+(?:a\s+|an?\s+)?reminder(?:\s+(?:to|for|about|that))?"
-    r"|(?:don'?t|do\s+not)\s+let\s+me\s+forget(?:\s+(?:to|about))?)\b\s*",
+    r"|(?:don'?t|do\s+not)\s+(?:let\s+me\s+)?forget(?:\s+(?:to|about))?)\b\s*",
     re.IGNORECASE,
 )
 _WORD_NUMBERS = {

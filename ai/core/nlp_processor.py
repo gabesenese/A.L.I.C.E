@@ -136,6 +136,7 @@ except ImportError:
 from ai.core.followup_resolver import FollowUpResolver
 from ai.core.route_coordinator import RouteCoordinator, RouteCoordinatorConfig
 from ai.core.goal_recognizer import get_goal_recognizer
+from ai.memory.forgetting import forget_topic
 from ai.core.foundation_layers import FoundationLayers
 from ai.plugins.registry import PluginRegistry, discover_plugins
 
@@ -694,6 +695,9 @@ _CALENDAR_QUESTION_RE = re.compile(
     r"|^(?:so\s+|and\s+)?(?:when|what\s+time)(?:'s|\s+is)\s+my\s+(?:next\s+)?(?:meeting|appointment)\b",
     re.IGNORECASE,
 )
+
+# "don't forget to call mom" is asking to be reminded.
+_DONT_FORGET_RE = re.compile(r"^(?:please\s+)?(?:don'?t|do\s+not)\s+(?:let\s+me\s+)?forget\b", re.IGNORECASE)
 
 _ADD_TO_LIST_RE = re.compile(
     r"^(?:please\s+)?(?:(?:can|could)\s+you\s+)?(?:add|put|stick|throw|include)\s+.+?\s+(?:to|on|onto|in|into)\s+"
@@ -4357,6 +4361,16 @@ class NLPProcessor:
         elif intent == "notes:append" and re.match(r"(?:show|list|what|which|read|open|see|display)\b", _raw):
             # Carried over from an add on the turn before, but this one asks to see.
             intent = "notes:list"
+        # "forget my favorite color" reached the model, which could only say it had
+        # forgotten; the fact stayed in memory. "forget it" means never mind.
+        if forget_topic(_raw):
+            intent = "memory:delete"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+            _chosen_here = True
+        elif _DONT_FORGET_RE.search(_raw):
+            intent = "reminder:set"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+            _chosen_here = True
         if _chosen_here:
             # A question reads as conversation, and the category gate turns tools off
             # for conversation; left on, that flag sent the turn to the model anyway.
