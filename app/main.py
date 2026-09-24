@@ -12,7 +12,6 @@ from brain.heartbeat import Heartbeat
 from brain.ambient_monitor import get_ambient_monitor
 from brain.task_scheduler import TaskScheduler
 
-from ai.infrastructure.rbac import get_rbac_engine
 from ai.infrastructure.runtime_flags import background_services_enabled, scripted_overrides_enabled
 from ai.infrastructure.approval_ledger import get_approval_ledger
 from ai.integration.git_manager import get_git_manager
@@ -55,7 +54,6 @@ from ai.plugins.document_plugin import DocumentPlugin
 from ai.plugins.calendar_plugin import CalendarPlugin
 from ai.plugins.notes_plugin import NotesPlugin
 from ai.plugins.maps_plugin import MapsPlugin
-from ai.planning.task_executor import TaskExecutor
 
 # New anticipatory AI systems
 from ai.infrastructure.event_bus import get_event_bus, EventPriority
@@ -65,7 +63,6 @@ from ai.learning.pattern_learner import get_pattern_learner
 from ai.optimization.system_monitor import get_system_monitor
 from ai.planning.task_planner import get_planner
 from ai.planning.plan_executor import initialize_executor
-from ai.planning.planner import ReasoningPlanner
 from ai.planning.task import PersistentTaskQueue, Task
 from ai.core.reasoning_engine import (
     get_reasoning_engine,
@@ -158,17 +155,11 @@ from tools.auditing.startup_doctor import StartupDoctor
 # NLP perception & policy layer
 from ai.core.perception import Perception
 from ai.core.interaction_policy import InteractionPolicy
-from ai.learning.learning_engine import get_nlp_error_logger
 
 # Area 1-8: advanced intelligence components (merged into existing modules)
 from ai.core.intent_classifier import get_bayesian_router
-from ai.memory.context_graph import get_world_graph
-from ai.core.interaction_policy import get_knob_bandit
-from ai.memory.memory_system import get_memory_replay
 from ai.core.failure_taxonomy import get_self_debugger, TurnPostmortem
-from ai.plugins.plugin_system import get_capability_graph
-from ai.learning.pattern_miner import get_habit_miner, get_htn_planner, HTNMethod
-from ai.infrastructure.metrics_collector import get_adaptive_controller
+from ai.learning.pattern_miner import get_htn_planner, HTNMethod
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -354,7 +345,6 @@ class ALICE:
         self.system_monitor = None
         self.planner = None
         self.plan_executor = None
-        self.reasoning_planner = None
         self.persistent_task_queue = None
         self.adaptive_response_style = None
         self.system_design_response_guard = None
@@ -389,12 +379,10 @@ class ALICE:
             self._classifier_warm_thread.start()
             # Shared session objects from NLP stack
             self.dialogue_memory = getattr(self.nlp, "dialogue_memory", None)
-            self.fp_store = getattr(self.nlp, "_fp_store", None)
 
             # NLP perception & policy layer (sit between NLP and routing)
             self.perception = Perception()
             self.interaction_policy = InteractionPolicy()
-            self.nlp_error_logger = get_nlp_error_logger()
             self.context_resolver = get_context_resolver()
 
             # Area 1–8: advanced intelligence components
@@ -411,25 +399,13 @@ class ALICE:
                         )
                 except Exception as _drain_err:
                     logger.debug("BayesianRouter cost-matrix seeding skipped: %s", _drain_err)
-                self.world_graph = get_world_graph(persistence_path="memory/world_graph.json")
-                self.knob_bandit = get_knob_bandit()
-                self.memory_replay = get_memory_replay()
                 self.self_debugger = get_self_debugger()
-                self.capability_graph = get_capability_graph()
-                self.habit_miner = get_habit_miner()
-                self.adaptive_controller = get_adaptive_controller()
                 self.htn_planner = get_htn_planner()
             except Exception as _adv_err:
                 logger.warning("Advanced components init failed (non-fatal): %s", _adv_err)
                 for _attr in (
                     "bayesian_router",
-                    "world_graph",
-                    "knob_bandit",
-                    "memory_replay",
                     "self_debugger",
-                    "capability_graph",
-                    "habit_miner",
-                    "adaptive_controller",
                     "htn_planner",
                 ):
                     if not hasattr(self, _attr):
@@ -740,7 +716,6 @@ class ALICE:
                     configure_minimal_policy()
 
             # 4.3. Runtime safety and verification guards
-            self.rbac_engine = get_rbac_engine()
             self.action_engine = get_unified_action_engine()
             self.approval_ledger = get_approval_ledger()
             self.world_state_memory = get_world_state_memory(storage_path="data/world_state.json")
@@ -786,10 +761,6 @@ class ALICE:
             self._register_plugins()
             self.action_engine.bind_plugin_manager(self.plugins)
 
-            # 6. Task Executor
-            logger.info(" Loading task executor...")
-            self.executor = TaskExecutor(safe_mode=True)
-
             # 6.1. Operator integrations
             self.git_manager = get_git_manager(PROJECT_ROOT)
             self.build_runner = get_build_runner(PROJECT_ROOT)
@@ -819,7 +790,6 @@ class ALICE:
 
             # 9. Advanced learning, testing, and telemetry systems
             self.pattern_miner = None
-            self.synthetic_corpus_gen = None
             self.multimodal_context = None
             self.lab_simulator = None
             self.red_team_tester = None
@@ -828,12 +798,6 @@ class ALICE:
                 try:
                     self.pattern_miner = PatternMiner()
                     logger.info("[OK] Pattern miner ready - will detect learnable patterns")
-                    if self.runtime_mode_config.enable_training:
-                        from ai.training.synthetic_corpus_generator import (
-                            SyntheticCorpusGenerator,
-                        )
-
-                        self.synthetic_corpus_gen = SyntheticCorpusGenerator()
                     if self.runtime_mode_config.enable_lab_tools:
                         from ai.lab_simulator import LabSimulator
                         from ai.red_team_tester import RedTeamTester
@@ -858,7 +822,6 @@ class ALICE:
                     llm_engine=self.llm,
                     memory_system=self.memory,
                 )
-                self.reasoning_planner = ReasoningPlanner()
                 self.persistent_task_queue = PersistentTaskQueue("data/planning/runtime_tasks.json")
                 self.persistent_task_queue.register_handler("execute_plan", self._execute_plan_queue_task)
                 self.persistent_task_queue.start_background_loop(tick_seconds=0.2)
