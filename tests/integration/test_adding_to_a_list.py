@@ -60,3 +60,46 @@ def test_both_ways_the_plugin_dispatches_it_add_the_item(notes):
 
     assert out["success"] is True
     assert out["response"] == "Started a shopping list with milk."
+
+
+def _say(notes, text, intent="notes:list"):
+    return notes.execute(intent, text, {}, {})["response"]
+
+
+def test_what_is_on_the_list_is_read_back(notes):
+    """It counted every note instead: "You have 3 note(s)."."""
+    _say(notes, "add milk, eggs and bread to my shopping list", "notes:append")
+    notes.manager.create_note(title="Meeting notes", content="Talked about the roadmap.")
+
+    assert _say(notes, "what's on my shopping list?") == "On your shopping list: milk, eggs and bread."
+    assert _say(notes, "show me the shopping list") == "On your shopping list: milk, eggs and bread."
+
+
+def test_things_come_off_the_list(notes):
+    _say(notes, "add milk, eggs and bread to my shopping list", "notes:append")
+
+    assert _say(notes, "take the milk off my shopping list") == "Took milk off your shopping list."
+    assert _say(notes, "remove egg and cheese from the shopping list") == (
+        "Took eggs off your shopping list; I couldn't find cheese on it."
+    )
+    assert _say(notes, "what's on my shopping list?") == "On your shopping list: bread."
+
+
+def test_clearing_the_list_says_what_was_on_it(notes):
+    _say(notes, "add milk and eggs to my shopping list", "notes:append")
+
+    assert _say(notes, "clear my shopping list") == "Cleared your shopping list. It had milk and eggs."
+    assert _say(notes, "what's on my shopping list?") == "Your shopping list is empty."
+
+
+def test_a_list_that_does_not_exist_is_not_invented(notes):
+    notes.manager.create_note(title="Meeting notes", content="Talked about the roadmap.")
+
+    assert _say(notes, "what's on my packing list?") == "You don't have a packing list yet."
+
+
+def test_an_unnamed_list_with_several_candidates_is_asked_about(notes):
+    _say(notes, "add milk to my shopping list", "notes:append")
+    _say(notes, "add call the dentist to my todo list", "notes:append")
+
+    assert _say(notes, "what's on my list?") == "Which one: your todo list or your shopping list?"

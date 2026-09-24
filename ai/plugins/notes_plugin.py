@@ -287,6 +287,36 @@ _LIST_ITEM_RE = re.compile(
     r"(?:to|on|onto|in|into)\s+(?:my|the|our)\s+(?P<name>[\w' -]{0,30}?\blist)\b",
     re.IGNORECASE,
 )
+_LIST_NAME = r"(?:my|the|our)\s+(?P<name>[\w' -]{0,30}?\blist)\b"
+_POLITE = r"^(?:(?:so|and|ok(?:ay)?|please)\s+)?(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?"
+_READ_LIST_RE = re.compile(
+    _POLITE + r"(?:what(?:'s|\s+is|\s+do\s+i\s+have)\s+(?:on|in)\s+|(?:show|read|give|tell)\s+(?:me\s+)?"
+    r"(?:what(?:'s|\s+is)\s+(?:on|in)\s+)?|(?:check|open|pull\s+up)\s+|(?:can\s+i|let\s+me)\s+see\s+)" + _LIST_NAME,
+    re.IGNORECASE,
+)
+_REMOVE_FROM_LIST_RE = re.compile(
+    _POLITE
+    + r"(?:take|remove|cross|strike|scratch|delete|drop)\s+(?P<items>.+?)\s+(?:off\s+of|off|from)\s+"
+    + _LIST_NAME,
+    re.IGNORECASE,
+)
+_CLEAR_LIST_RE = re.compile(_POLITE + r"(?:clear|empty|wipe)\s+(?:out\s+)?" + _LIST_NAME, re.IGNORECASE)
+_BULLET_RE = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)]|\[[ xX]?\])\s*")
+
+
+def _list_items(content: str) -> List[str]:
+    """The entries of a list note, one per line, without their bullets."""
+    return [text for text in (_BULLET_RE.sub("", line).strip() for line in str(content or "").splitlines()) if text]
+
+
+def _item_key(text: str) -> str:
+    """Enough to match "the eggs" to "eggs" and "egg"."""
+    key = re.sub(r"^(?:the|a|an|some|my|our)\s+", "", " ".join(str(text or "").lower().split()).strip(" .!"))
+    return key[:-1] if key.endswith("s") and len(key) > 3 else key
+
+
+def _joined(items: List[str]) -> str:
+    return ", ".join(items[:-1]) + (" and " if len(items) > 1 else "") + items[-1] if items else ""
 
 
 class NotesManager:
@@ -2843,6 +2873,103 @@ class NotesPlugin(PluginInterface):
             "data": {"note_title": note.title, "items": items, "created": not existing},
         }
 
+    def _named_list_request(self, command: str) -> Optional[Dict[str, Any]]:
+        """Read a named list, take things off it, or clear it.
+
+        Every one of these went to notes:list, which counted the notes: "what's on
+        my shopping list?" was answered "You have 3 note(s)."
+        """
+        text = str(command or "").strip()
+        removing = _REMOVE_FROM_LIST_RE.search(text)
+        clearing = None if removing else _CLEAR_LIST_RE.search(text)
+        reading = None if removing or clearing else _READ_LIST_RE.search(text)
+        match = removing or clearing or reading
+        if not match:
+            return None
+        name = " ".join(match.group("name").split()).lower()
+        found = self.manager.find_by_title(name)
+        exact = [n for n in found if n.title.lower() == name]
+        if not exact and name == "list" and len(found) > 1:
+            names = [n.title.lower() for n in found[:4]]
+            return {
+                "success": True,
+                "action": "read_list",
+                "response": "Which one: "
+                + " or ".join([", ".join(f"your {n}" for n in names[:-1]), f"your {names[-1]}"])
+                + "?",
+                "data": {"candidates": names},
+            }
+        note = (exact or found or [None])[0]
+        if note is None:
+            if re.search(r"\bto-?\s?do\b|\btask", name):
+                return None  # no list by that name; the to-do notes answer it
+            return {
+                "success": True,
+                "action": "read_list",
+                "response": f"You don't have a {name} yet.",
+                "data": {"list": name, "exists": False},
+            }
+        title = note.title.lower()
+        items = _list_items(note.content)
+        self.last_note_id = note.id
+        self.last_note_title = note.title
+
+        if reading:
+            if not items:
+                response = f"Your {title} is empty."
+            elif len(items) <= 8:
+                response = f"On your {title}: {_joined(items)}."
+            else:
+                response = f"Your {title} has {len(items)} things on it:\n" + "\n".join(f"- {i}" for i in items)
+            return {
+                "success": True,
+                "action": "read_list",
+                "response": response,
+                "data": {"list": title, "items": items},
+            }
+
+        if clearing:
+            if not items:
+                return {"success": True, "action": "clear_list", "response": f"Your {title} is already empty."}
+            self.manager.update_note(note.id, content="")
+            return {
+                "success": True,
+                "action": "clear_list",
+                "response": f"Cleared your {title}. It had {_joined(items)}.",
+                "data": {"list": title, "removed": items},
+            }
+
+        wanted = [
+            i.strip(" .") for i in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", removing.group("items")) if i.strip(" .")
+        ]
+        lines = str(note.content or "").splitlines()
+        removed: List[str] = []
+        missing: List[str] = []
+        for item in wanted:
+            key = _item_key(item)
+            at = next(
+                (i for i, line in enumerate(lines) if _item_key(_BULLET_RE.sub("", line)) == key and line.strip()),
+                None,
+            )
+            if at is None:
+                missing.append(item)
+            else:
+                removed.append(_BULLET_RE.sub("", lines.pop(at)).strip())
+        if removed:
+            self.manager.update_note(note.id, content="\n".join(lines))
+        if not removed:
+            response = f"I couldn't find {_joined(missing)} on your {title}."
+        elif missing:
+            response = f"Took {_joined(removed)} off your {title}; I couldn't find {_joined(missing)} on it."
+        else:
+            response = f"Took {_joined(removed)} off your {title}."
+        return {
+            "success": True,
+            "action": "remove_from_list",
+            "response": response,
+            "data": {"list": title, "removed": removed, "missing": missing},
+        }
+
     def _append_note(self, command: str) -> Dict[str, Any]:
         """Append text to an existing note without replacing its content."""
         # "add milk to my shopping list", "put batteries on the grocery list": items
@@ -3383,6 +3510,12 @@ class NotesPlugin(PluginInterface):
                 if pending_resolution is not None:
                     result = pending_resolution
                     resolution_path = "disambiguation_selection"
+
+            # A named list: "what's on my shopping list?", "take milk off it", "clear it".
+            if result is None:
+                result = self._named_list_request(command)
+                if result is not None:
+                    resolution_path = "named_list"
 
             # Count notes (check first for "how many notes")
             if result is None and re.search(r"how many|count|number of", command_lower) and "note" in command_lower:
