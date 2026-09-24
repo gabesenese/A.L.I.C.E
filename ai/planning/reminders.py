@@ -409,23 +409,52 @@ class ReminderStore:
         said = [r for r in self._load() if r.delivered_at or r.fired]
         return max(said, key=lambda r: r.delivered_at or r.due) if said else None
 
+    # The words of the request itself, which say nothing about which reminder.
+    _CANCEL_WORDS = {
+        "cancel",
+        "delete",
+        "remove",
+        "clear",
+        "kill",
+        "end",
+        "turn",
+        "off",
+        "stop",
+        "reminding",
+        "remind",
+        "reminder",
+        "reminders",
+        "never",
+        "mind",
+        "please",
+        "all",
+        "any",
+        "more",
+        "anymore",
+        "don't",
+        "dont",
+        "the",
+        "that",
+        "those",
+        "these",
+        "my",
+        "about",
+        "you",
+        "can",
+        "could",
+    }
+
     def cancel(self, words: str = "") -> List[Reminder]:
         """Cancel the pending reminders whose text shares a word with ``words``;
-        with no words, the next one due."""
-        wanted = {w for w in re.findall(r"[a-z0-9']{3,}", str(words or "").lower())} - {
-            "cancel",
-            "delete",
-            "remove",
-            "reminder",
-            "reminders",
-            "the",
-            "my",
-            "about",
-        }
+        with no words, the next one due, and with "all", every one."""
+        said = {w for w in re.findall(r"[a-z0-9']{3,}", str(words or "").lower())}
+        wanted = said - self._CANCEL_WORDS
         with self._lock:
             reminders = self._load()
             pending = sorted((r for r in reminders if not r.fired), key=lambda r: r.due)
-            if wanted:
+            if not wanted and "all" in said:
+                chosen = pending
+            elif wanted:
                 chosen = [r for r in pending if wanted & set(re.findall(r"[a-z0-9']{3,}", r.text.lower()))]
             else:
                 chosen = pending[:1]

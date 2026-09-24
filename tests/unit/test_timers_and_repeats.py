@@ -125,3 +125,34 @@ def test_asking_how_long_is_left_is_routed_to_the_timer():
     from ai.core.nlp_processor import NLPProcessor
 
     assert NLPProcessor().process("how long is left on my timer?").intent == "reminder:timer_left"
+
+
+def test_stopping_a_reminder_cancels_that_one(tmp_path):
+    """The request's own words ("stop", "reminding") no longer count as what
+    to cancel, and "all" cancels every one."""
+    store = ReminderStore(tmp_path / "r.json")
+    store.add("take my pills", datetime(2026, 9, 25, 8, 0), repeat="daily")
+    store.add("call dad", datetime(2026, 9, 24, 21, 0))
+    store.add("lock up", datetime(2026, 9, 24, 22, 0))
+
+    assert [r.text for r in store.cancel("stop reminding me about my pills")] == ["take my pills"]
+    assert [r.text for r in store.cancel("delete all my reminders")] == ["call dad", "lock up"]
+    assert store.pending() == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "stop reminding me about my pills",
+        "cancel the timer",
+        "never mind the call dad reminder",
+        "delete all my reminders",
+        "don't remind me about the rent",
+    ],
+)
+def test_cancelling_is_routed_to_reminders(text):
+    from ai.core.nlp_processor import NLPProcessor
+
+    result = NLPProcessor().process(text)
+    assert result.intent == "reminder:cancel"
+    assert not result.parsed_command["modifiers"].get("tool_execution_disabled")

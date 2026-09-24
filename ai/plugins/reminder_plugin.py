@@ -59,7 +59,13 @@ class ReminderPlugin(PluginInterface):
             cancelled = self.store.cancel(query)
             if not cancelled:
                 return {"success": True, "response": "There's no reminder like that to cancel.", "data": {}}
-            names = "; ".join(r.text for r in cancelled)
+            names = "; ".join(said_back(r.text) for r in cancelled)
+            if len(cancelled) > 2 and re.search(r"\ball\b", str(query or ""), re.I):
+                return {
+                    "success": True,
+                    "response": f"Cancelled all {len(cancelled)} of them.",
+                    "data": {"cancelled": names},
+                }
             return {"success": True, "response": f"Cancelled: {names}.", "data": {"cancelled": names}}
 
         moving = RESCHEDULE_RE.match(str(query or "").strip())

@@ -698,6 +698,18 @@ _CALENDAR_QUESTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "stop reminding me about my pills", "cancel the timer", "never mind the call dad
+# reminder", "delete all my reminders": each went to conversation, or was asked
+# "What exact result should I produce next?".
+_CANCEL_REMINDER_RE = re.compile(
+    r"^(?:please\s+)?(?:(?:can|could)\s+you\s+)?(?:stop|quit)\s+reminding\s+me\b"
+    r"|^(?:please\s+)?(?:(?:can|could)\s+you\s+)?(?:cancel|stop|kill|delete|remove|clear|end|turn\s+off)\s+"
+    r"(?:the\s+|my\s+|that\s+|all\s+(?:of\s+)?(?:my\s+|the\s+)?)?(?:[\w' -]{0,40}\s)?(?:reminders?|timers?)\b"
+    r"|^never\s*mind\s+(?:the\s+|my\s+|that\s+)?(?:[\w' -]{0,40}\s)?(?:reminder|timer)\b"
+    r"|^(?:don'?t|do\s+not)\s+remind\s+me\b",
+    re.IGNORECASE,
+)
+
 # "how long is left on my timer?" wants the time left, not the list of reminders.
 _TIMER_LEFT_RE = re.compile(
     r"\bhow\s+(?:long|much\s+time)(?:'s|\s+is)?\s+(?:left\s+)?(?:on\s+)?(?:my|the)\s+timer\b"
@@ -4374,6 +4386,10 @@ class NLPProcessor:
         # forgotten; the fact stayed in memory. "forget it" means never mind.
         if forget_topic(_raw):
             intent = "memory:delete"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+            _chosen_here = True
+        elif _CANCEL_REMINDER_RE.search(_raw):
+            intent = "reminder:cancel"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
             _chosen_here = True
         elif _TIMER_LEFT_RE.search(_raw):
