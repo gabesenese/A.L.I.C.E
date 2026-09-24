@@ -43,6 +43,8 @@ def test_everything_else_is_not(text):
 
 def test_a_chained_request_is_routed_to_the_model_with_its_tools():
     boundaries = build_runtime_boundaries(_FakeAlice())
-    decision = boundaries.routing.route(RouterRequest(user_input="list my notes, then read the first one", turn_number=1))
+    decision = boundaries.routing.route(
+        RouterRequest(user_input="list my notes, then read the first one", turn_number=1)
+    )
     assert decision.route == "llm"
     assert decision.metadata["reason"] == "multi_step_request"
